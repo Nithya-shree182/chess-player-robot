@@ -134,14 +134,15 @@ def _seg_dist(c, a, b):
     return float(np.linalg.norm(c - (a + t * ab)))
 
 
-def _need_height(xy, obstacles, held_r):
-    """Lowest tip height (board mm) at xy so the carried piece (held at its base) and the fingers next to it clear
-    every piece whose footprint overlaps."""
+def _need_height(xy, obstacles, held_r, held_below=None):
+    """Lowest tip height (board mm) at xy so the carried piece (its base hangs `held_below` under the tip) and the
+    fingers next to it clear every piece whose footprint overlaps."""
+    held_below = C.GRASP_HEIGHT_MM if held_below is None else held_below
     need = 0.0
     for (ox, oy), sym in obstacles.items():
         o = C.PIECES[sym.lower()]
         if np.hypot(xy[0] - ox, xy[1] - oy) < held_r + C.FINGER_LEFT_MM + o["diameter"] / 2 + C.CORRIDOR_MARGIN_MM:
-            need = max(need, o["height"] + surface_z((ox, oy)) + C.GRASP_HEIGHT_MM + C.TRAVEL_CLEAR_MM)
+            need = max(need, o["height"] + surface_z((ox, oy)) + held_below + C.TRAVEL_CLEAR_MM)
     return need
 
 
@@ -154,7 +155,7 @@ def _polyline(points, step):
     return np.array(pts)
 
 
-def plan_travel(src, dst, z0, z1, obstacles, held_r, step=10.0):
+def plan_travel(src, dst, z0, z1, obstacles, held_r, step=10.0, held_below=None, arc=None):
     """Carry path (board-mm xyz points of the piece centre) from (src, z0) to (dst, z1), shaped like the
     demonstrations: straight up to a high travel level, across with a gentle hump, straight down over the target.
 
@@ -178,10 +179,11 @@ def plan_travel(src, dst, z0, z1, obstacles, held_r, step=10.0):
         seg = np.r_[0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
         length = float(seg[-1])
         s = seg / (length + 1e-9)
-        H = float(np.clip(C.ARC_PER_MM * length, C.ARC_MIN_MM, C.ARC_MAX_MM))
+        arc_lo, arc_hi = arc if arc is not None else (C.ARC_MIN_MM, C.ARC_MAX_MM)  # top grip: the piece already hangs high
+        H = float(np.clip(C.ARC_PER_MM * length, arc_lo, arc_hi))
         level = max(z0, z1) + C.ARC_RISE_FRACTION * H
         z = level + (1 - C.ARC_RISE_FRACTION) * H * np.sin(np.pi * s)
-        need = np.array([_need_height(p, obstacles, held_r) for p in xy]) if obstacles else np.zeros(len(xy))
+        need = np.array([_need_height(p, obstacles, held_r, held_below) for p in xy]) if obstacles else np.zeros(len(xy))
         z = np.maximum(z, need)
         z = np.minimum(np.maximum.accumulate(z), np.maximum.accumulate(z[::-1])[::-1])  # rise, then fall
         if z.max() > C.Z_SAFE:
@@ -199,37 +201,60 @@ def plan_travel(src, dst, z0, z1, obstacles, held_r, step=10.0):
     return pts, dict(route=name, peak_mm=round(peak, 1), length_mm=round(total, 1))
 
 
-def collisions(path, obstacles, held_below, held_r, piece_d, open_pct=None):
+def collisions(path, obstacles, held_below, held_r, piece_d, open_pct=None, held_off=None, wide_right=None,
+               use_head=False, held_face_r=None):
     """path: [(board-mm xyz of the tip, u, holding)], u = unit board-xy vector toward the moving finger.
     Fingers: a strip from FINGER_LEFT_MM left of the tip to (piece width + FINGER_WIDTH_MM) right of it, from the
-    tip up FINGER_LENGTH_MM; above that the gripper body (BODY_RADIUS_MM). The held piece is centred HELD_OFFSET_MM
-    right of the tip, its base held_below under the tip. Returns {(symbol, xy)} hit."""
+    tip up FINGER_LENGTH_MM; above that the gripper body (BODY_RADIUS_MM). The held piece is centred `held_off`
+    (default HELD_OFFSET_MM) right of the tip, its base held_below under the tip. Returns {(symbol, xy)} hit.
+
+    Top grip (use_head=True): a neighbour is only as wide as its HEAD wherever the fingers are above the height at
+    which the head starts, and `wide_right` is given by the caller (shift + head + clearance + finger)."""
     hits = set()
-    wide_right = piece_d + C.FINGER_WIDTH_MM  # jaws open around a piece centred on its square (approach)
-    if open_pct is not None:  # opened less than GRIPPER_OPEN (tight-spot grasp): the moving finger stays closer
-        wide_right -= max(0.0, C.GRIPPER_OPEN - open_pct) * C.JAW_MM_PER_PCT
+    held_off = C.HELD_OFFSET_MM if held_off is None else held_off
+    if wide_right is None:
+        wide_right = piece_d + C.FINGER_WIDTH_MM  # jaws open around a piece centred on its square (approach)
+        if open_pct is not None:  # opened less than GRIPPER_OPEN (tight-spot grasp): the moving finger stays closer
+            wide_right -= max(0.0, C.GRIPPER_OPEN - open_pct) * C.JAW_MM_PER_PCT
     # after the grasp the piece sits HELD_OFFSET_MM from the tip and the moving finger hugs it (or opens a little:
     # rest[1] = how far it has moved off the piece there, default RELEASE_GAP_MM)
     for (x, y, z), u, holding, *rest in path:
         gap = rest[1] if len(rest) > 1 else C.RELEASE_GAP_MM
-        right = C.HELD_OFFSET_MM + held_r + gap + C.FINGER_WIDTH_MM if (rest and rest[0]) else wide_right
+        # while holding, the moving finger's inner face is on the held part (the head in top grip, the base otherwise)
+        face_r = held_r if held_face_r is None else held_face_r
+        right = held_off + face_r + gap + C.FINGER_WIDTH_MM if (rest and rest[0]) else wide_right
         p = np.array([x, y])
         w = np.array([-u[1], u[0]])  # across the jaw axis
         for (ox, oy), sym in obstacles.items():
             o = C.PIECES[sym.lower()]
-            r = o["diameter"] / 2
+            r_base = o["diameter"] / 2
             top = o["height"] + surface_z((ox, oy))
+            r = r_base
+            if use_head:
+                if o.get("profile"):  # the fingers (long) meet everything of the neighbour from the fingertip height up
+                    r = C.max_width(sym, z - surface_z((ox, oy))) / 2
+                elif z >= o["head_from"] + surface_z((ox, oy)):
+                    r = o["head_d"] / 2  # the fingers only meet the narrow head of this neighbour
             c = np.array([ox, oy])
             s_, w_ = float(np.dot(c - p, u)), float(np.dot(c - p, w))  # obstacle centre in the finger frame
             in_fingers = -C.FINGER_LEFT_MM - r < s_ < right + r and abs(w_) < C.FINGER_HALF_DEPTH_MM + r
             if in_fingers and z < top:
                 hits.add((sym, (round(ox), round(oy))))
+                if _DEBUG is not None:
+                    _DEBUG.append(("fingers", sym, (round(ox), round(oy)), round(s_, 1), round(w_, 1), round(z, 1), round(right, 1), round(r, 1), holding))
             elif np.linalg.norm(c - p) < 0.3 * o["diameter"] + C.BODY_RADIUS_MM and z + C.FINGER_LENGTH_MM < top:
                 # body vs the piece's (narrow) top part
                 hits.add((sym, (round(ox), round(oy))))
-            elif holding and np.linalg.norm(c - (p + u * C.HELD_OFFSET_MM)) < held_r + r and z - held_below < top:
+                if _DEBUG is not None:
+                    _DEBUG.append(("body", sym, (round(ox), round(oy)), round(z, 1)))
+            elif holding and np.linalg.norm(c - (p + u * held_off)) < held_r + r_base and z - held_below < top:
                 hits.add((sym, (round(ox), round(oy))))
+                if _DEBUG is not None:
+                    _DEBUG.append(("held piece", sym, (round(ox), round(oy)), round(z, 1), round(float(np.linalg.norm(c - (p + u * held_off))), 1)))
     return hits
+
+
+_DEBUG = None  # set to a list to record why collisions() reported a hit
 
 
 class PickPlace:
@@ -277,19 +302,29 @@ class PickPlace:
         """Plan with the demonstrated jaw shift; in a crowded spot (the fixed finger would touch a neighbour) retry
         with a smaller shift before giving up."""
         last = None
-        tries = [(s, False) for s in (C.JAW_SHIFT_MM, C.JAW_SHIFT_MM - 2.5, C.JAW_SHIFT_MM - 5.0)]
-        tries += [(s, True) for s in C.TIGHT_JAW_SHIFT_MM]  # the crowded-demo grasp (only if the normal one is blocked)
-        for shift, tight in tries:
+        if C.GRASP_MODE == "top":
+            # room beside the head: the normal amount first, then less and less if a neighbour is close (the jaws open
+            # less and the approach shift = head radius + room shrinks with it)
+            r_head = C.PIECES[t.piece.lower()]["head_d"] / 2
+            # the widest room that fits: 8 mm each side where nothing is near (forgives a hand-placed piece being a few
+            # mm off), down to 1.2 mm in a crowded row
+            tries = [(r_head + c, False, c) for c in (C.TOP_GRIP_CLEAR_MM, 6.0, 4.5, 3.5, 2.5, 1.8, 1.2)]
+        else:
+            tries = [(s, False, None) for s in (C.JAW_SHIFT_MM, C.JAW_SHIFT_MM - 2.5, C.JAW_SHIFT_MM - 5.0)]
+            tries += [(s, True, None) for s in C.TIGHT_JAW_SHIFT_MM]  # the crowded-demo grasp (only if the normal one is blocked)
+        for shift, tight, clear in tries:
             try:
-                plan = self._plan_transfer(t, obstacles, shift, tight)
+                plan = self._plan_transfer(t, obstacles, shift, tight, clear)
                 plan["info"]["jaw_shift_mm"] = shift
-                plan["info"]["grasp"] = "tight" if tight else "normal"
+                plan["info"]["grasp"] = "tight" if tight else ("top" if clear is not None else "normal")
+                if clear is not None:
+                    plan["info"]["room_mm"] = clear
                 return plan
             except Blocked as e:
                 last = e
         raise last
 
-    def _plan_transfer(self, t: Transfer, obstacles, jaw_shift, tight=False):
+    def _plan_transfer(self, t: Transfer, obstacles, jaw_shift, tight=False, clear=None):
         """IK for every waypoint + collision check. Raises Unreachable / Blocked; returns the plan dict.
 
         Sequence (board mm; the piece stays centred on its squares, the tip is offset toward the fixed finger):
@@ -301,13 +336,23 @@ class PickPlace:
         """
         obstacles = obstacles or {}
         spec = C.PIECES[t.piece.lower()]
-        held_below, held_r = C.GRASP_HEIGHT_MM, spec["diameter"] / 2
-        z_grasp = C.GRASP_HEIGHT_MM + surface_z(t.src)
-        z_place = C.GRASP_HEIGHT_MM + C.Z_PLACE_LIFT + surface_z(t.dst)
+        top_mode = C.GRASP_MODE == "top"  # hold the piece by its head (tip high on the piece) instead of at its base
+        grasp_z = spec["grip_z"] if top_mode else C.GRASP_HEIGHT_MM
+        held_off = spec["held"] if top_mode else C.HELD_OFFSET_MM  # the piece's centre from the tip once gripped
+        held_below, held_r = grasp_z, spec["diameter"] / 2
+        z_grasp = grasp_z + surface_z(t.src)
+        z_place = grasp_z + C.Z_PLACE_LIFT + surface_z(t.dst)
         z_side = spec["height"] + surface_z(t.src) + C.SIDE_STEP_CLEAR_MM  # just above the piece's top
-        open_pct = C.TIGHT_GRIPPER_OPEN if tight else C.GRIPPER_OPEN
-        release_pct = C.TIGHT_RELEASE_OPEN_PCT if tight else C.RELEASE_OPEN_PCT
-        release_gap = release_pct * C.JAW_MM_PER_PCT if tight else C.RELEASE_GAP_MM
+        if top_mode:
+            clear = C.TOP_GRIP_CLEAR_MM if clear is None else clear
+            open_pct = C.gap_to_pct(spec["head_d"] + 2 * clear)  # jaws open just wide enough around the head
+            release_pct = spec["release_pct"]
+            release_gap = C.TOP_RELEASE_OPEN_MM
+            tight = False
+        else:
+            open_pct = C.TIGHT_GRIPPER_OPEN if tight else C.GRIPPER_OPEN
+            release_pct = C.TIGHT_RELEASE_OPEN_PCT if tight else C.RELEASE_OPEN_PCT
+            release_gap = release_pct * C.JAW_MM_PER_PCT if tight else C.RELEASE_GAP_MM
         if tight:  # step sideways above everything near the square, then straight down
             near = [C.PIECES[s.lower()]["height"] + surface_z(xy) for xy, s in (obstacles or {}).items()
                     if np.hypot(xy[0] - t.src[0], xy[1] - t.src[1]) < 1.6 * C.SQUARE_MM]
@@ -317,8 +362,8 @@ class PickPlace:
         (src_xy, u_src), (_, u_dst) = self._jaw_shifted(t.src, z_grasp, seed, jaw_shift), self._jaw_shifted(t.dst, z_place, seed)
         # once gripped the piece sits HELD_OFFSET_MM from the tip (closing pushed it against the fixed finger),
         # so placing needs a smaller offset than grasping
-        held_src = tuple(np.asarray(src_xy) + C.HELD_OFFSET_MM * u_src)  # where the piece is after the grasp
-        dst_xy = tuple(np.asarray(t.dst, float) - C.HELD_OFFSET_MM * u_dst)
+        held_src = tuple(np.asarray(src_xy) + held_off * u_src)  # where the piece is after the grasp
+        dst_xy = tuple(np.asarray(t.dst, float) - held_off * u_dst)
         p_down, p_side, p_dg = [], [], []
         down = self._line(t.src, C.Z_SAFE, t.src, z_side, seed, 90.0, pts=p_down)  # centred, jaws open
         # The arm is COMMANDED with the measured pick correction (PICK_EXTRA_*: toward the robot's base, toward the
@@ -340,13 +385,14 @@ class PickPlace:
         p_up = self._points(src_xy, z_grasp, src_xy, z_lift0, step_mm=4.0)
         up = self._path(ramp(p_up, 1, 0), dg[-1])  # lift; the correction eases out
         # the carried piece's path (its centre is JAW_SHIFT_MM right of the tip) decides height and route
-        piece_path, tinfo = plan_travel(held_src, t.dst, z_lift0, z_lift1, obstacles, held_r)
+        piece_path, tinfo = plan_travel(held_src, t.dst, z_lift0, z_lift1, obstacles, held_r, held_below=held_below,
+                                        arc=C.TOP_ARC_MM if top_mode else None)
         if piece_path is None:
             raise Blocked(f"{t.label}: {tinfo}")
         n = max(1, len(piece_path) - 1)
         u_tr = [(u_src * (1 - i / n) + u_dst * (i / n)) / np.linalg.norm(u_src * (1 - i / n) + u_dst * (i / n))
                 for i in range(len(piece_path))]
-        p_travel = [np.r_[p[:2] - C.HELD_OFFSET_MM * u, p[2]] for p, u in zip(piece_path, u_tr)]
+        p_travel = [np.r_[p[:2] - held_off * u, p[2]] for p, u in zip(piece_path, u_tr)]
         # place-only trim (PLACE_EXTRA_OFFSET_MM): commanded positions only, eased in over the carry; the points kept
         # for the collision check stay where the piece really goes
         place_off = np.r_[np.asarray(C.PLACE_EXTRA_OFFSET_MM, float), 0.0]
@@ -358,13 +404,19 @@ class PickPlace:
         p_up2 = self._points(dst_xy, z_place, dst_xy, C.Z_SAFE)
         up2 = self._path([p + place_off for p in p_up2], down2[-1])  # retreat, jaws open
         if obstacles:
-            held_gap = 0.0 if tight else C.RELEASE_GAP_MM  # while holding, the moving finger hugs the piece
+            held_gap = 0.0 if (tight or top_mode) else C.RELEASE_GAP_MM  # while holding, the moving finger hugs the piece
             path = ([(p, u_src, False, False) for p in p_down + p_side + p_dg]
                     + [(p, u_src, True, True, held_gap) for p in p_up]
                     + [(p, u, True, True, held_gap) for p, u in zip(p_travel, u_tr)]
                     + [(p, u_dst, True, True, held_gap) for p in p_down2]
                     + [(p, u_dst, False, True, release_gap) for p in p_up2])
-            hits = collisions(path, obstacles, held_below, held_r, spec["diameter"], open_pct if tight else None)
+            if top_mode:  # moving finger's outer face: head centre (jaw shift) + head radius + clearance + finger
+                wide_right = jaw_shift + spec["head_d"] / 2 + clear + C.FINGER_WIDTH_MM
+                hits = collisions(path, obstacles, held_below, held_r, spec["diameter"], None, held_off, wide_right, True,
+                                  held_face_r=spec["head_d"] / 2)
+            else:
+                hits = collisions(path, obstacles, held_below, held_r, spec["diameter"], open_pct if tight else None,
+                                  held_off)
             if hits:
                 def where(xy):
                     sq = mm_to_square(*xy)
@@ -377,6 +429,8 @@ class PickPlace:
         n_pts = sum(map(len, (p_down, p_side, p_dg, p_up, p_travel, p_down2, p_up2)))
         travel_s = max(C.MIN_MOVE_S, tinfo["length_mm"] / C.TRAVEL_SPEED_MM_S)
         info = dict(step=t.label, piece=t.piece, route=tinfo["route"], z_travel_mm=tinfo["peak_mm"],
+                    grasp_tip_z_mm=round(float(z_grasp - C.PICK_EXTRA_DOWN_MM), 1), open_pct=round(float(open_pct), 1),
+                    shift_mm=round(float(jaw_shift), 1),
                     max_grasp_tilt_deg=round(max(tilts), 1),
                     est_seconds=round(float(5 * C.DESCEND_S + travel_s + 2 * C.GRIP_S + 3 * C.MIN_MOVE_S), 1),
                     waypoints=n_pts)
@@ -390,18 +444,7 @@ class PickPlace:
         the piece centre minus JAW_SHIFT_MM along the direction the moving finger opens at that square.
         Also returns that direction (unit, board xy). JAW_SHIFT_MM < 0 shifts the other way."""
         q = solve_or_raise(self.ik, self.T(*xy, z), seed, 90.0, what=f"jaw direction at {np.round(xy)}")
-
-        def jaw_and_tip(g):
-            self.ik._set(q)
-            self.ik.robot.set_joint("gripper", g)
-            self.ik.robot.update_kinematics()
-            return self.ik.robot.get_T_world_frame("moving_jaw_so101_v1_link"), self.ik.robot.get_T_world_frame(C.EE_FRAME)
-
-        j0, tip = jaw_and_tip(0.0)
-        on_jaw = np.linalg.inv(j0) @ np.r_[tip[:3, 3], 1.0]  # the fingertip point, attached to the moving jaw
-        j1, _ = jaw_and_tip(0.6)  # opened
-        u = (j1 @ on_jaw)[:3] - tip[:3, 3]
-        u -= np.dot(u, tip[:3, 2]) * tip[:3, 2]
+        u = self.ik.jaw_open_direction(q)  # robot frame; (the original used placo here)
         ub = (self.T.R.T @ u)[:2]
         ub /= np.linalg.norm(ub)
         return tuple(np.asarray(xy, float) - (C.JAW_SHIFT_MM if shift is None else shift) * ub), ub
@@ -416,9 +459,9 @@ class PickPlace:
     def _as_dicts(self, qs, gripper):
         return [{**dict(zip(C.ARM_JOINTS, map(float, q))), "gripper": gripper} for q in qs]
 
-    def _follow(self, qs, gripper, duration, check=None):
+    def _follow(self, qs, gripper, duration, check=None, first_s=None):
         path = self._as_dicts(qs, gripper)
-        self.arm.move_to(path[0])
+        self.arm.move_to(path[0], first_s)  # (first_s: take the first step slowly, e.g. right after a grasp)
         if len(path) > 1:
             return self.arm.move_path(path, duration, check)
         return None
@@ -433,6 +476,42 @@ class PickPlace:
             return f"gripper closed to {g:.1f}% (was holding at {held:.1f}%)" if g < held - C.DROP_DETECT_PCT else None
 
         return check
+
+    def _photo(self, label, t):
+        """Debug photo from the webcam on the gripper (data/grasp_debug/): how the piece sits between the jaws."""
+        if not C.GRASP_DEBUG_PHOTOS or not self.verify_grasp:
+            return
+        try:
+            import time as _t
+
+            import cv2
+
+            from chess_player.vision.camera import open_capture
+
+            if getattr(self, "_dbg_cap", None) is None:
+                self._dbg_cap = open_capture(C.GRASP_DEBUG_CAM)
+            cap = self._dbg_cap
+            for _ in range(4):  # drop buffered frames
+                cap.grab()
+            ok, f = cap.read()
+            if ok:
+                d = C.DATA / "grasp_debug"
+                d.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(d / f"{_t.strftime('%H%M%S')}_{t.piece}_{label}.jpg"), f)
+        except Exception:
+            self._dbg_cap = None
+
+    def _log_where(self, when, t, worst):
+        """Print where the jaw tip REALLY is (measured joints, not the commanded ones) in board mm."""
+        try:
+            now = self.arm.present()
+            q = np.array([now[j] for j in C.ARM_JOINTS])
+            p = self.T.R.T @ (self.ik.fk(q)[:3, 3] - self.T.t) * 1000
+            extra = "" if worst is None else f", worst joint still {worst:.1f} deg short"
+            self.log(f"  jaw tip {when} (measured): x {p[0]:.1f}, y {p[1]:.1f}, z {p[2]:.1f} mm; "
+                     f"piece centre x {t.src[0]:.1f}, y {t.src[1]:.1f}{extra}")
+        except Exception:
+            pass
 
     def _escape_up(self):
         """Straight up from wherever the arm stopped, to the safe height, jaws open."""
@@ -463,6 +542,9 @@ class PickPlace:
         self.log(f"  transfer: {t.label} ({plan['info']['route']}, up to {plan['info']['z_travel_mm']} mm)")
         a = plan["approach"]
         opening = plan.get("open", C.GRIPPER_OPEN)
+        i = plan["info"]
+        self.log(f"  grasp plan: tip {i['grasp_tip_z_mm']} mm above the board (piece {C.PIECES[t.piece.lower()]['height']} mm tall), "
+                 f"jaws open {i['open_pct']} %, sideways shift {i['shift_mm']} mm, closing toward {max(0.0, plan['grip'] - C.GRIP_SQUEEZE):.1f} %")
         if plan["info"].get("grasp") == "tight":
             self.log(f"  tight spot: grasp opening {opening}%, release +{plan['release_pct']}% (from the crowded demos)")
         for attempt in range(retries + 1):
@@ -470,9 +552,17 @@ class PickPlace:
             self.arm.gripper(opening)
             self.arm.settle()  # learn the sag here; the correction carries into the descent
             self._follow(a, opening, C.DESCEND_S + 0.8)  # down, sideways step, down to the base
+            # The arm sags and stops a few mm short of where it is told (gravity, weak P gain): measure the shortfall here,
+            # at the bottom of the descent, and add it to the command before closing (the same correction hover_test
+            # does). Without this the jaws closed 5-10 mm too high.
+            worst = self.arm.settle() if hasattr(self.arm, "settle") else 0.0
+            self._log_where("before closing", t, worst)
+            self._photo(f"a{attempt + 1}_before_closing", t)
             ok, info = self._grasp(plan)
+            self._photo(f"a{attempt + 1}_closed", t)
             if ok:
                 break
+            self._log_where("when it closed on nothing", t, None)
             self.log(f"  grasp attempt {attempt + 1} failed: {info}")
             self.arm.gripper(opening)
             self._follow(plan["abort_up"], opening, C.DESCEND_S)
@@ -480,8 +570,15 @@ class PickPlace:
             raise GraspFailed(f"{t.label}: {info}")
         held = self.arm.present()["gripper"] if self.verify_grasp else self.arm.joints()["gripper"]
         check = self._holding_check(held)
-        for seg, dur in (("up", 0.6), ("travel", plan["travel_s"]), ("down2", 0.8)):
-            why = self._follow(plan[seg], held, dur, check)
+        self.log(f"  holding at {held:.1f} % (gap ~{C.gap_to_pct and np.interp(held, C._GAP_PCT, C._GAP_MM):.0f} mm); "
+                 f"lifting slowly, then carrying")
+        # 2026-11-05: the hanging piece swung / slipped when the arm lifted (0.6 s) and came down (0.8 s) fast: now slower
+        hold = max(0.0, held - C.HOLD_SQUEEZE_PCT)  # command a bit tighter than where the piece stops the jaws: real grip force
+        self._photo("holding", t)
+        for seg, dur in (("up", C.CARRY_UP_S), ("travel", plan["travel_s"] * C.CARRY_TRAVEL_SLOW), ("down2", C.CARRY_DOWN_S)):
+            why = self._follow(plan[seg], hold, dur, check, first_s=1.5)
+            if seg == "down2" and not why and hasattr(self.arm, "settle"):
+                self.arm.settle()  # at the bottom over the target: measure the sag before letting go (same as the pick)
             if why:
                 self.log(f"  piece dropped while moving ({why}): going up")
                 self.arm.gripper(C.GRIPPER_OPEN)

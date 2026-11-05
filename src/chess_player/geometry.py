@@ -20,16 +20,27 @@ def mm_to_square(x: float, y: float):
 class BoardToRobot:
     """Rigid transform p_robot[m] = R @ p_board[mm] / 1000 + t."""
 
-    def __init__(self, R, t, residual_mm=None):
+    def __init__(self, R, t, residual_mm=None, A=None, b=None):
         self.R, self.t, self.residual_mm = np.asarray(R, float), np.asarray(t, float), residual_mm
+        # Optional 2-D correction measured by eye (calib/nudge_calibrate.py): to put the tip over the true board
+        # point p, the arm is sent to A @ p + b instead. Fixes what the hand-touched rigid fit gets wrong (e.g. the
+        # far ranks); None = no correction.
+        self.A = None if A is None else np.asarray(A, float)
+        self.b = None if b is None else np.asarray(b, float)
 
     def __call__(self, x_mm, y_mm, z_mm=0.0) -> np.ndarray:
+        if self.A is not None:
+            x_mm, y_mm = self.A @ np.array([x_mm, y_mm]) + self.b
         return self.R @ (np.array([x_mm, y_mm, z_mm]) / 1000.0) + self.t
 
     @classmethod
-    def load(cls, path=C.BOARD_TO_ROBOT):
+    def load(cls, path=C.BOARD_TO_ROBOT, apply_correction=True):
         d = json.loads(path.read_text())
-        return cls(d["R"], d["t"], d.get("residual_mm"))
+        A = b = None
+        if apply_correction and C.BOARD_CORRECTION.exists():
+            c = json.loads(C.BOARD_CORRECTION.read_text())
+            A, b = c["A"], c["b"]
+        return cls(d["R"], d["t"], d.get("residual_mm"), A, b)
 
     def save(self, path=C.BOARD_TO_ROBOT, **extra):
         path.parent.mkdir(parents=True, exist_ok=True)

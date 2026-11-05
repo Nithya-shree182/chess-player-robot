@@ -43,7 +43,7 @@ def phases(d):
     """
     g, l = d["f_gripper"], d["l_gripper"]
     empty = np.nanpercentile(g, 5)
-    holding = ((g - l) > 3) & (g > empty + 3)
+    holding = ((g - l) > 2) & (g > empty + 2)  # (was 3 / 3: the new gripper moves ~2 mm per %, a small head is only ~4 %)
     runs, start = [], None
     for i, v in enumerate(np.r_[holding, False]):
         if v and start is None:

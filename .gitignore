@@ -40,3 +40,12 @@ data/demos/_old_calibration/
 
 # ---- Live state of this machine's real board (rewritten every move)
 data/board_state.json
+
+# ---- 2026-11-05: Windows binaries, local tool state, temp files
+bin/stockfish.exe
+.codesight/
+data/_tmp*
+data/tmp_*
+data/ext_corners_now.jpg
+data/hover_check/
+data/ext_corners_check_*.jpg

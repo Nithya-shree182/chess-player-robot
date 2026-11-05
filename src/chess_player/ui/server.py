@@ -39,11 +39,16 @@ class LiveCam:
 
     def __init__(self):
         self.frame, self.t, self.source = None, 0.0, "none"
+        if not C.WRIST_CAMERA_ENABLED:  # one webcam only: it belongs to the main (third-person) role
+            self.source = "disabled"
+            return
         threading.Thread(target=self._loop, daemon=True).start()
 
     def _loop(self):
+        from chess_player.vision.camera import open_capture
+
         while True:
-            cap = cv2.VideoCapture(str(C.CAMERA), cv2.CAP_V4L2)
+            cap = open_capture(C.CAMERA)
             if cap.isOpened() and cap.read()[0]:
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, C.CAM_W)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, C.CAM_H)
@@ -125,6 +130,19 @@ class Conductor:
             self.eye = WristWatcher(wrist.get, self._eye_active)
             self.eye_status = "calibrated" if self.eye.view is not None else "not calibrated"
             self.s.refine = lambda dets: self._fused(dets)[0]  # human-move detection uses both cameras too
+        # "Zoom in": unsure squares are re-read on a full-resolution still from the phone (vision/zoom.py)
+        self.zoom = None
+        if self.ext is not None and self.yolo_kind:
+            from chess_player.vision import zoom as Z
+
+            if Z.available():
+                try:
+                    self.zoom = Z.Zoom(log=self.log)
+                    if self.eye is None:  # (with the gripper camera as second judge, _fused() calls the zoom itself)
+                        self.s.refine = lambda dets: self.zoom.refine(dets, wait=True)
+                    self.log("zoom on: squares the camera is unsure about are re-read on full-resolution phone stills")
+                except Exception as e:
+                    self.log(f"zoom unavailable: {e}")
         threading.Thread(target=self._loop, daemon=True).start()
         self.jobs.put(("startup", {}))
 
@@ -141,6 +159,8 @@ class Conductor:
         """Webcam reading + gripper-camera reading -> (seen for merge_seen, per-square info for the UI)."""
         from chess_player.vision.wrist_view import fuse
 
+        if getattr(self, "zoom", None) is not None:  # unsure squares: use the full-resolution re-read when it is ready
+            ext_dets = self.zoom.refine(ext_dets, wait=False)
         eye = self.eye.match(ext_dets) if self.eye is not None and self.eye.view is not None else None
         seen, info, votes = fuse(ext_dets, eye or {}, self.eye.visible if eye is not None else set())
         if eye is not None:  # pieces only the robot eye can see (hidden from the webcam behind other pieces)
@@ -1028,7 +1048,7 @@ def main():
     ap.add_argument("--port", type=int, default=8770)
     ap.add_argument("--dry-run", action="store_true", help="simulated arm")
     ap.add_argument("--skill", type=int, help="Stockfish skill level 0-20")
-    ap.add_argument("--no-voice", action="store_true", help="no Robo (microphone, speech, language model)")
+    ap.add_argument("--voice", action="store_true", help="start Robo (microphone, speech, language model); off by default")
     ap.add_argument("--no-mic", action="store_true", help="Robo talks and answers typed questions, but doesn't listen")
     ap.add_argument("--mute", action="store_true", help="start with Robo's voice muted")
     ap.add_argument("--no-webcam", action="store_true", help="don't connect to the third-person webcam")
@@ -1036,8 +1056,8 @@ def main():
     if a.no_webcam:
         C.EXT_CORNERS = C.DATA / "__no_webcam__.json"  # makes Session and the UI skip the webcam
     wrist = LiveCam()
-    cond = Conductor(dry_run=a.dry_run, skill=a.skill, wrist=wrist)
-    if not a.no_voice:
+    cond = Conductor(dry_run=a.dry_run, skill=a.skill, wrist=wrist if C.WRIST_CAMERA_ENABLED else None)
+    if a.voice:
         from chess_player.voice.assistant import Assistant
 
         cond.assistant = Assistant(cond, wrist, use_mic=not a.no_mic)

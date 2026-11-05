@@ -1,7 +1,12 @@
 # Shared settings for all scripts. Usage (from the repo folder): source scripts/env.sh
-source ~/miniforge3/etc/profile.d/conda.sh
-conda activate lerobot
+# Python environment: the repo's own .venv (setup/install_ubuntu.sh creates it) if present, else the old conda env `lerobot`.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -f "$REPO/.venv/bin/activate" ]; then
+  source "$REPO/.venv/bin/activate"
+else
+  source ~/miniforge3/etc/profile.d/conda.sh
+  conda activate lerobot
+fi
 export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
 
 FOLLOWER_PORT=/dev/so100_follower
@@ -11,6 +16,7 @@ if [ -e /dev/so100_leader ]; then
 else
   LEADER_PORT=$(ls /dev/ttyACM* 2>/dev/null | grep -v "$(readlink -f "$FOLLOWER_PORT")" | head -1)
 fi
-GRIPPER_CAM=/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB2.0_CAM1_USB2.0_CAM1-video-index0
-FOLLOWER_ID=follower_arm
-LEADER_ID=leader_arm
+# the webcam mounted on the gripper (Ausha)
+GRIPPER_CAM=/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0
+FOLLOWER_ID=my_follower   # the new rig's LeRobot calibration ids (files in data/calibration_backup/)
+LEADER_ID=my_leader

@@ -55,7 +55,7 @@ def main():
         for k in keys:
             for img in by_pos[k]:
                 lab = DS / "labels" / f"{img.stem}.txt"
-                (work / split / "images" / img.name).symlink_to(img)
+                shutil.copy(img, work / split / "images" / img.name)  # (copies: symlinks need admin on Windows)
                 lines = []
                 for ln in (lab.read_text().split("\n") if lab.exists() else []):
                     if ln.strip():

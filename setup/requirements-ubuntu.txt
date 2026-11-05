@@ -1,0 +1,16 @@
+# Python packages for the chess robot (versions that worked on Windows, 2026-11-05; exact freeze: setup/windows_pip_freeze_2026-11-05.txt).
+# torch/torchvision are installed first by setup/install_ubuntu.sh with the right CUDA build, ultralytics last with --no-deps
+# (its own requirement on opencv-python would replace the headless build and break the pins).
+lerobot[feetech]==0.6.1
+numpy==2.2.6
+opencv-python-headless==4.13.0.92
+scipy
+chess==1.11.2          # python-chess
+pyserial
+matplotlib
+psutil
+polars
+pyyaml
+requests
+tqdm
+pillow

@@ -7,12 +7,28 @@ import numpy as np
 from chess_player import config as C
 
 
+def is_device(src):
+    """A local camera: an integer index (Windows) or a /dev path (Linux). Anything else is a stream URL."""
+    return isinstance(src, int) or str(src).startswith("/dev")
+
+
+def open_capture(src):
+    """cv2.VideoCapture for a local camera (DirectShow on Windows, V4L2 on Linux) or a stream URL."""
+    import sys
+
+    if isinstance(src, int) or str(src).isdigit():
+        return cv2.VideoCapture(int(src), cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
+    if str(src).startswith("/dev"):
+        return cv2.VideoCapture(str(src), cv2.CAP_V4L2)
+    return cv2.VideoCapture(str(src))
+
+
 class Camera:
     """The gripper camera. If wrist_stream.py is running it owns the device, so frames come from its local
     stream instead (same 640x480 frames)."""
 
     def __init__(self, path=C.CAMERA):
-        self.cap = cv2.VideoCapture(str(path), cv2.CAP_V4L2)
+        self.cap = open_capture(path)
         ok = self.cap.isOpened() and self.cap.read()[0]
         if ok:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, C.CAM_W)

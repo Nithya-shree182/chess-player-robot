@@ -60,6 +60,8 @@ def diagnose(url):
     """Why a camera gave no frames, in words: unplugged, busy, phone unreachable."""
     import urllib.request
 
+    if isinstance(url, int):
+        return f"the webcam (camera index {url}) can't be opened: unplugged, wrong index, or another program has it"
     if str(url).startswith("/dev"):
         if not C.Path(url).exists():
             return f"the webcam {url} isn't plugged in (not found)"
@@ -99,8 +101,10 @@ class ExtCamera:
     def _open(self):
         """(capture, already_white_balanced). A USB device is opened as MJPG at EXT_CAMERA_SIZE; if another program
         has it, fall back to the pipeline's shared copy of the stream (already white-balanced)."""
-        if str(self.url).startswith("/dev"):
-            cap = cv2.VideoCapture(str(self.url), cv2.CAP_V4L2)
+        from chess_player.vision.camera import is_device, open_capture
+
+        if is_device(self.url):
+            cap = open_capture(self.url)
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, C.EXT_CAMERA_SIZE[0])
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, C.EXT_CAMERA_SIZE[1])
@@ -148,9 +152,19 @@ def view(frame):
 def robot_color_from_corners(path=C.EXT_CORNERS):
     """The webcam sits on the human's side, so whichever back rank is nearer the bottom of its image is the
     human's. Clicked order is a1, h1, h8, a8: rank 1 lower in the image -> human white, robot black."""
+    if C.BOARD_TO_ROBOT.exists():  # camera-independent: the robot plays the side whose back rank is nearer its base
+        from chess_player.geometry import BoardToRobot
+
+        T = BoardToRobot.load(apply_correction=False)
+        B = C.PLAY_MM
+        d1 = float(np.linalg.norm(T(B / 2, 0.0)[:2]))  # base is the robot-frame origin
+        d8 = float(np.linalg.norm(T(B / 2, B)[:2]))
+        return "white" if d1 < d8 else "black"
     px = json.loads(path.read_text())["px"]
     rank1_y = (px[0][1] + px[1][1]) / 2
     rank8_y = (px[2][1] + px[3][1]) / 2
+    if C.CAMERA_ON_ROBOT_SIDE:  # camera on the robot's gripper: the rank nearer the bottom is the ROBOT's
+        return "white" if rank1_y > rank8_y else "black"
     return "black" if rank1_y > rank8_y else "white"
 
 

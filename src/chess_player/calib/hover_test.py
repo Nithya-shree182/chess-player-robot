@@ -46,9 +46,22 @@ def main():
             if not a.no_sag_fix:
                 arm.settle()
             arm.move_to(dict(zip(C.ARM_JOINTS, lo)), C.DESCEND_S)
+            if not a.no_sag_fix:
+                arm.settle()  # the shoulder stops 2-4 deg short at full stretch: measure it down here and add it
             print(f"  {name}: holding {a.hold:.1f} s at {a.height:.0f} mm  (t, tip mm, lift load %, elbow load %, status)")
+            if a.hold > 5:
+                print(f"  >>> the jaw tip is hovering over the CENTRE of {name}: slide the piece so it stands right under it")
             t0 = time.time()
+            want = dict(zip(C.ARM_JOINTS, lo))
+            now = arm.present()
+            err = {j: round(float(now[j] - want[j]), 1) for j in C.ARM_JOINTS}
+            pb = T.R.T @ (ik.fk(np.array([now[j] for j in C.ARM_JOINTS]))[:3, 3] - T.t) * 1000
+            print(f"    commanded joints {np.round(lo, 1)}  measured minus commanded (deg) {err}")
+            print(f"    measured tip in board mm: x {pb[0]:.1f} y {pb[1]:.1f} z {pb[2]:.1f}   (wanted x {xy[0]:.1f} y {xy[1]:.1f} z {a.height:.1f})")
             while time.time() - t0 < a.hold:
+                if a.hold > 5:
+                    time.sleep(1.0)  # a long hold (placing a piece under the tip): don't flood the screen
+                    continue
                 now = arm.present()
                 load, status = arm.load_status() if hasattr(arm, "load_status") else ({}, {})
                 flag = "  <-- OVERLOAD" if any(v >= 80 for v in load.values()) or any(status.values()) else ""
