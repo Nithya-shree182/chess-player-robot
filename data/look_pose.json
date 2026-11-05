@@ -1,23 +1,22 @@
 {
   "name": "home",
-  "description": "Chess overview: gripper camera sees the full board and all pieces",
-  "recorded": "2026-10-17",
-  "robot_id": "follower_arm",
+  "description": "Chess overview (new board, 2026-11-04 v2): webcam on the gripper sees the whole board, rank 1 nearest the robot, a1 dark at bottom-left; fingers cover part of rank 1",
+  "recorded": "2026-11-04",
+  "robot_id": "my_follower",
   "raw": {
-    "shoulder_pan": 2051,
-    "shoulder_lift": 848,
-    "elbow_flex": 3058,
-    "wrist_flex": 2468,
-    "wrist_roll": 1062,
-    "gripper": 2345
+    "shoulder_pan": 2137,
+    "shoulder_lift": 821,
+    "elbow_flex": 2345,
+    "wrist_flex": 3259,
+    "wrist_roll": 939,
+    "gripper": 2074
   },
   "degrees": {
-    "shoulder_pan": -9.8,
-    "shoulder_lift": -101.98,
-    "elbow_flex": 96.31,
-    "wrist_flex": 35.25,
-    "wrist_roll": -87.52
+    "shoulder_pan": 0.48,
+    "shoulder_lift": -102.86,
+    "elbow_flex": 37.58,
+    "wrist_flex": 96.75,
+    "wrist_roll": -97.45
   },
-  "gripper_percent": 27.47,
-  "camera_view": "home_view.jpg (same folder)"
+  "gripper_percent": 4.61
 }

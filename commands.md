@@ -127,3 +127,24 @@ uses it). YOLO = our own model once trained (`data/yolo/best.pt`), else a public
 | `Missing motor IDs` / `Incorrect status packet` | another program has the port, or a USB dropout: close it, replug, check `journalctl -k --since -5min \| grep -i usb` |
 | Webcam grid doesn't sit on the board | webcam or board moved: redo the webcam corners |
 | Arm misses squares | board moved relative to the robot: redo board → robot, then the hover test |
+
+## Windows / new rig (added 2026-11-05; details in STATUS.md)
+
+Every PowerShell window first: `$env:PYTHONPATH = "D:\ntt data nithya\chess\src"`; python = `C:\Users\asus\lerobot-env\Scripts\python.exe`.
+
+| What | Command |
+|---|---|
+| Is the follower connected? joints + torque (read-only) | `python src\tools\read_pose.py` |
+| Arm stuck after a failed move: lift straight up, go home | `python src\tools\safe_lift.py` |
+| Torque: gripper only / whole arm (it drops!) / back on | `python src\tools\torque.py gripper` / `all` / `on` |
+| Pipeline (UI, voice off), dry run | `scripts\run_pipeline.ps1 --dry-run` |
+| Board calibration by touching 17 points (torque off, you guide the arm) | `python -m chess_player.calib.board_to_robot --grid --ring` |
+| Check the board calibration: hover over squares (watch where the tip stops) | `python -m chess_player.calib.hover_test --height 15 --squares a8 h8 a1 h1 d4` |
+| Hold the tip over a square centre to place a piece under it | `python -m chess_player.calib.hover_test --height 30 --squares e2 --hold 25` |
+| Refit the phone corners (EMPTY board, phone fixed) | `python -m chess_player.calib.fit_phone_corners --rough "a1x,y h1x,y h8x,y a8x,y"` |
+| Re-read the board at full resolution (zoom) | `python -m chess_player.vision.zoom` |
+| Measure the jaw gap (ruler) | `python -m chess_player.calib.gripper_gap` |
+| Piece width profiles from the listing photo | `python -m chess_player.calib.piece_profile data\listing_pieces.png` |
+| One real move, lone pawn on e2 / full start position / plan only | `python -m chess_player.move_piece e2 e4 --fen "8/8/8/8/8/8/4P3/8 w - - 0 1"` / `--fen start` / add `--dry-run` |
+| Choose where the jaws close | `$env:CHESS_GRIP_ON = "neck"` (default) / `"head"` / `"base"` |
+| Record a teleop demonstration (not used so far) | `python -m chess_player.teach.record_poses --task "pawn e2 to e4"` then `python -m chess_player.teach.analyze_demo --last 1` |

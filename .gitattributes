@@ -1,0 +1,7 @@
+# Keep Unix line endings where Linux needs them (shell scripts and udev rules break with CRLF)
+*.sh text eol=lf
+*.rules text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.ps1 text eol=crlf

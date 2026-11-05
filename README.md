@@ -1,5 +1,9 @@
 # SO-101 chess robot
 
+> **2026-11-05: this checkout was moved to Windows and a NEW rig (25 mm board, new pieces, phone camera).** The text below
+> describes the original Ubuntu rig. For the current state, what works, what does not (picking up pieces) and how to resume, read
+> **[STATUS.md](STATUS.md)** and the timestamped log **[docs/SESSION_LOG_2026-11-05.md](docs/SESSION_LOG_2026-11-05.md)**.
+
 An SO-101 follower arm that plays chess against a person on a real board. The robot plays **white**, you play
 **black**. Two cameras read the board:
 
