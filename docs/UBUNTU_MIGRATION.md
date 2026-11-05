@@ -1,7 +1,7 @@
 # Moving to the new Ubuntu machine (written 2026-11-05)
 
 Goal: be productive within ~30 minutes of getting the new machine. Everything needed is either in this repo (branch
-`windows-new-rig-2026-11-05`) or in the backup bundle `chess_rig_bundle_2026-11-05.zip` (same files + model weights + the
+`nithya`; locally it is called `windows-new-rig-2026-11-05`) or in the backup bundle `chess_rig_bundle_2026-11-05.zip` (same files + model weights + the
 Windows environment list). Read [../STATUS.md](../STATUS.md) afterwards for where the project stands.
 
 ## 0. What carries over and what must be redone
@@ -18,7 +18,7 @@ Windows environment list). Read [../STATUS.md](../STATUS.md) afterwards for wher
 ## 1. Get the code
 ```bash
 git clone --recurse-submodules https://github.com/Nithya-shree182/chess-player-robot chess && cd chess
-git checkout windows-new-rig-2026-11-05        # (once it has been pushed), or unzip the bundle:  unzip chess_rig_bundle_2026-11-05.zip
+git checkout nithya        # the work branch; or unzip the backup bundle instead:  unzip chess_rig_bundle_2026-11-05.zip
 ```
 
 ## 2. Python environment (NVIDIA driver must already work: `nvidia-smi`)
