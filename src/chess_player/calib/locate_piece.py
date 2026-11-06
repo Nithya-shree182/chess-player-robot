@@ -136,31 +136,16 @@ def main():
             parts = cmd.split()
             try:
                 if parts[0] == "close":
-                    # SLOW close in small steps: stop the moment the pads touch (the jaw stalls behind the command), then a light squeeze.
-                    # A fast swing flicks a narrow piece away before it is held.
-                    import time as _t
+                    from chess_player.motion.slow_grip import slow_close
 
-                    cmd_g = float(arm.joints()["gripper"])  # the COMMANDED opening: the contact check compares the measured jaw with it
-                    p = float(arm.present()["gripper"])
-                    contact = None
-                    while cmd_g > 1.5:
-                        cmd_g = max(1.0, cmd_g - 0.5)
-                        arm.gripper(cmd_g, 0.35)
-                        _t.sleep(0.1)
-                        p = float(arm.present()["gripper"])
-                        if p > cmd_g + 1.0:  # the jaw cannot follow the command: the pads touch something
-                            contact = p
-                            break
-                    if contact is not None:
-                        arm.gripper(max(0.0, contact - C.HOLD_SQUEEZE_PCT), 0.8)  # light squeeze
-                        arm.dwell()
-                    print(f"  closed slowly: " + (f"CONTACT at {contact:.1f} %, squeezing to {arm.present()['gripper']:.1f} %" if contact is not None
-                                                  else f"no contact, jaws at {arm.present()['gripper']:.1f} % (empty)"))
+                    contact, fin = slow_close(arm)
+                    print("  closed slowly: " + (f"CONTACT at {contact:.1f} %, squeezing to {fin:.1f} %" if contact is not None
+                                                 else f"no contact, jaws at {fin:.1f} % (empty)"))
                     continue
                 if parts[0] == "open":
-                    arm.gripper(min(float(parts[1]), C.GRIP_OPEN_MAX_PCT))
-                    arm.dwell()
-                    print(f"  jaws at {arm.present()['gripper']:.1f} %")
+                    from chess_player.motion.slow_grip import slow_release
+
+                    print(f"  jaws at {slow_release(arm, min(float(parts[1]), C.GRIP_OPEN_MAX_PCT)):.1f} % (opened slowly)")
                     continue
                 d = float(parts[1])
                 cur = cur + {"x": [d, 0, 0], "y": [0, d, 0], "z": [0, 0, d]}[parts[0]]

@@ -110,9 +110,10 @@ def main():
               f"pawn at ({xy[0]:.1f}, {xy[1]:.1f})")
         if not a.auto_close:
             input("Check the open jaws straddle the pawn. Enter = CLOSE, Ctrl+C = back up: ")
-        arm.gripper(1.0, 1.8)
-        arm.dwell()
-        held = arm.present()["gripper"]
+        from chess_player.motion.slow_grip import slow_close, slow_release
+
+        contact, held = slow_close(arm)
+        held = contact if contact is not None else held
         gap = float(np.interp(held, C._GAP_PCT, C._GAP_MM))
         print(f"closed: jaws stopped at {held:.1f} % (gap ~{gap:.0f} mm)" + ("  <-- NOTHING IN THE HAND" if held < 2.0 else ""))
         hold = max(0.0, held - C.HOLD_SQUEEZE_PCT)
@@ -126,8 +127,7 @@ def main():
         goto(over_dst, hold, 3.5)
         goto(put, hold, C.CARRY_DOWN_S)
         arm.settle()
-        arm.gripper(min(open_pct, held + C.RELEASE_OPEN_PCT))
-        arm.dwell()
+        slow_release(arm, min(open_pct, held + C.RELEASE_OPEN_PCT))
         goto(over_dst, min(open_pct, held + C.RELEASE_OPEN_PCT), C.DESCEND_S)
         goto(look_q(look), 0.0, 2.5)
         print("done: pawn placed, arm home")

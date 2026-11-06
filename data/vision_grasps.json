@@ -52,7 +52,7 @@
         -5.0,
         0.0
       ],
-      "close": "SLOW: 0.5 % steps (about 1 s each), stop at contact, light squeeze (HOLD_SQUEEZE_PCT)",
+      "close": "slow_close(): command steps of 0.5 % (about 1 s each), contact when the measured jaw lags the command by > 1 %, then a light squeeze (src/chess_player/motion/slow_grip.py)",
       "contact_reading_pct": 8.6,
       "squeezed_pct": 8.4,
       "lift": "straight up 30 mm held fine",
@@ -62,7 +62,14 @@
         -0.4
       ],
       "verified": "2026-11-06: rook c2 -> c3, landed upright 2.1 mm toward a-file of the c3 centre",
-      "note": "Earlier tilted / fast-close attempts pushed the rook over; what fixed it: the fixed pad nearly touches the rook before closing (tip ~5 mm from the centre), a SLOW contact-sensing close, vertical tool."
+      "note": "Earlier tilted / fast-close attempts pushed the rook over; what fixed it: the fixed pad nearly touches the rook before closing (tip ~5 mm from the centre), a SLOW contact-sensing close, vertical tool.",
+      "release": "slow_release(): open in 0.5 % steps to 16 %, then lift (verified: the rook stayed upright)"
     }
+  },
+  "slow_grip": {
+    "helper": "src/chess_player/motion/slow_grip.py",
+    "step_pct": 0.5,
+    "lag_pct": 1.0,
+    "verified": "2026-11-06 rook: contact 8.6 %, squeeze 8.4 %, upright place"
   }
 }
