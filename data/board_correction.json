@@ -1,0 +1,5 @@
+{
+  "A": [[1.0, 0.0], [0.0, 1.0]],
+  "b": [48.8, -49.0],
+  "note": "2026-11-06: camera measurement at d4 (hover_test, tip 38 mm up): the real tip landed 48.8 mm toward the a-file and 49.0 mm toward rank 8 from the commanded point, so every target is sent 48.8 mm toward h and 49.0 mm toward rank 1. Stopgap until the hand-eye calibration; delete this file to undo."
+}
