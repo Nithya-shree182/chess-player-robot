@@ -171,6 +171,7 @@
     padding: calc(100% * 15 / 390); }
   .hov div { position: relative; }
   .hov div.src { box-shadow: inset 0 0 0 3px rgba(46,196,182,.9); }
+  .hov div.dst, .hov div.cap { cursor: pointer; }
   .hov div.dst::after { content: ""; position: absolute; left: 36%; top: 36%; width: 28%; height: 28%; border-radius: 50%;
     background: rgba(46,196,182,.75); }
   .hov div.cap::after { content: ""; position: absolute; inset: 6%; border-radius: 50%; border: 3px solid rgba(239,75,85,.85); }
@@ -520,6 +521,12 @@ function renderHover(s) {
   if (!hov.children.length) for (let i = 0; i < 64; i++) {
     const d = document.createElement("div"); d.dataset.i = i;
     d.onmouseenter = () => { hovSq = sqAt(i, last.s || s); renderHover(last.s || s); };
+    d.onclick = () => {  // click a highlighted destination: the arm plays that move (asks first)
+      const st = last.s || s, to = sqAt(i, st), from = hovSq, pm2 = pieceMap(st.fen);
+      if (!from || !pm2[from] || !((st.hover && st.hover.moves[from]) || []).includes(to)) return;
+      const nm = (x) => (x === x.toUpperCase() ? "white " : "black ") + PNAME[x.toLowerCase()];
+      if (confirm(`Let the robot arm move the ${nm(pm2[from])} from ${from} to ${to}?`)) post("/api/click_move", { from, to });
+    };
     hov.appendChild(d);
   }
   hov.onmouseleave = () => { hovSq = null; renderHover(last.s || s); };
@@ -531,7 +538,7 @@ function renderHover(s) {
     const unsure = det && (det[5] === false || (det[5] !== true && (det[1] < 0.8 || det[3])));
     d.className = (sq === hovSq && pm[sq] ? "src " : "") + (targets.has(sq) ? (pm[sq] ? "cap " : "dst ") : "") + (unsure ? "unsure" : "");
   });
-  let info = "hover a piece: its moves + what the camera sees (orange = unsure reading)";
+  let info = "hover a piece: its moves + what the camera sees (orange = unsure reading). Click a highlighted square to let the arm play that move.";
   if (hovSq) {
     const p = pm[hovSq], det = h.det[hovSq];
     info = hovSq + ": " + (p ? (p === p.toUpperCase() ? "white " : "black ") + PNAME[p.toLowerCase()] + " · " + targets.size + " moves" : "empty");

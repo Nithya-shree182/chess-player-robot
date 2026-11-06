@@ -10,6 +10,7 @@ nothing ever drives the arm from two places. Endpoints:
   POST /api/action        {"action": play|pause|new_game|home|i_moved|done_by_hand|undo}
   POST /api/human_move    {"move": "e4" | "e2e4" | "Nf3" | "O-O"}
   POST /api/manual        {"from": "e4", "to": "a3", "sync": true}   physical pick & place (any squares)
+  POST /api/click_move    {"from": "e2", "to": "e4"}   the arm plays that legal move (a suggested move that was clicked)
 """
 import argparse
 import collections
@@ -484,6 +485,28 @@ class Conductor:
     def robot_move(self):
         self.say("thinking", "Thinking...")
         move = self.s.engine_move()
+        self._robot_play(move)
+
+    def job_click_move(self, src, dst):
+        """A suggested move was clicked in the board overlay: the arm plays it (captures included), like the robot's own move."""
+        b = self.s.board
+        try:
+            mv = chess.Move.from_uci(src + dst)
+        except ValueError:
+            self.say("need_help", f"'{src}{dst}' isn't a move")
+            return
+        pc = b.piece_at(mv.from_square)
+        if pc is not None and pc.piece_type == chess.PAWN and chess.square_rank(mv.to_square) in (0, 7):
+            mv = chess.Move(mv.from_square, mv.to_square, chess.QUEEN)  # promotion: a queen
+        if mv not in b.legal_moves:
+            who = "white" if b.turn else "black"
+            self.log(f"clicked {src}{dst}: not a legal move now ({who} to move)")
+            self.say("need_help", f"{src} to {dst} isn't a legal move now ({who} is to move).")
+            return
+        self.log(f"clicked move {b.san(mv)}: the arm plays it")
+        self._robot_play(mv)
+
+    def _robot_play(self, move):
         san = self.s.board.san(move)
         report = self.s.check(move)
         self.plan = report.get("steps", [])
@@ -1039,6 +1062,14 @@ def make_handler(cond, wrist):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"fen": fen, **info})
+            if path == "/api/click_move":
+                src, dst = str(body.get("from", "")).strip().lower(), str(body.get("to", "")).strip().lower()
+                try:
+                    chess.parse_square(src), chess.parse_square(dst)
+                except ValueError:
+                    return self._json({"error": "squares like e2 and e4"}, 400)
+                cond.jobs.put(("click_move", {"src": src, "dst": dst}))
+                return self._json({"queued": f"{src}->{dst}"})
             if path == "/api/manual":
                 src, dst = str(body.get("from", "")).strip().lower(), str(body.get("to", "")).strip().lower()
                 try:
