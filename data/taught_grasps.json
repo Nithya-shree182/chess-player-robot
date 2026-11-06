@@ -1,0 +1,13 @@
+{
+  "p": {
+    "square": "e2",
+    "shift_mm": 13.55,
+    "lateral_mm": 6.0,
+    "grip_z": 23.7,
+    "gripper_pct": 3.76,
+    "gap_mm": 7.9,
+    "roll": -97.0,
+    "powered": true,
+    "time": "2026-11-05 18:39:54"
+  }
+}

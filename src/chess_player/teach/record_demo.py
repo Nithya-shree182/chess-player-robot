@@ -150,7 +150,7 @@ def main():
             print(f"\n*** WEBCAM NOT AVAILABLE ({e}).\n*** The phone serves one viewer at a time: close the pipeline "
                   f"window and any browser tab showing {C.EXT_CAMERA_URL.rsplit('/', 1)[0]}.\n*** Recording black "
                   f"frames for the webcam. Ctrl+C now to fix it first.\n")
-    leader = SOLeader(SOLeaderTeleopConfig(port=leader_port, id="leader_arm"))
+    leader = SOLeader(SOLeaderTeleopConfig(port=leader_port, id=C.LEADER_ID))
     leader.connect(calibrate=False)
     arm = Arm(use_sag_model=False)
     ik = IK()

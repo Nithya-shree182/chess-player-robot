@@ -308,7 +308,11 @@ class PickPlace:
             r_head = C.PIECES[t.piece.lower()]["head_d"] / 2
             # the widest room that fits: 8 mm each side where nothing is near (forgives a hand-placed piece being a few
             # mm off), down to 1.2 mm in a crowded row
-            tries = [(r_head + c, False, c) for c in (C.TOP_GRIP_CLEAR_MM, 6.0, 4.5, 3.5, 2.5, 1.8, 1.2)]
+            first = C.PIECES[t.piece.lower()].get("taught_clear", C.TOP_GRIP_CLEAR_MM)  # the opening taught by hand
+            tries = [(r_head + c, False, c) for c in [first] + [c for c in (6.0, 4.5, 3.5, 2.5, 1.8, 1.2) if c < first]]
+            ts = C.PIECES[t.piece.lower()].get("taught_shift")
+            if ts is not None:  # the shift taught by hand on the real square comes first
+                tries.insert(0, (ts, False, first))
         else:
             tries = [(s, False, None) for s in (C.JAW_SHIFT_MM, C.JAW_SHIFT_MM - 2.5, C.JAW_SHIFT_MM - 5.0)]
             tries += [(s, True, None) for s in C.TIGHT_JAW_SHIFT_MM]  # the crowded-demo grasp (only if the normal one is blocked)
@@ -359,13 +363,14 @@ class PickPlace:
             z_side = min(C.Z_SAFE - 5.0, max([z_side - C.SIDE_STEP_CLEAR_MM] + near) + C.SIDE_STEP_CLEAR_MM)
         seed = np.array([look_pose()[j] for j in C.ARM_JOINTS])
         seed[4] = C.WRIST_ROLL_DEG
-        (src_xy, u_src), (_, u_dst) = self._jaw_shifted(t.src, z_grasp, seed, jaw_shift), self._jaw_shifted(t.dst, z_place, seed)
+        (src_xy, u_src), (_, u_dst) = self._jaw_shifted(t.src, z_grasp, seed, jaw_shift, spec.get("taught_lateral", 0.0)), self._jaw_shifted(t.dst, z_place, seed)
         # once gripped the piece sits HELD_OFFSET_MM from the tip (closing pushed it against the fixed finger),
         # so placing needs a smaller offset than grasping
         held_src = tuple(np.asarray(src_xy) + held_off * u_src)  # where the piece is after the grasp
         dst_xy = tuple(np.asarray(t.dst, float) - held_off * u_dst)
         p_down, p_side, p_dg = [], [], []
-        down = self._line(t.src, C.Z_SAFE, t.src, z_side, seed, 90.0, pts=p_down)  # centred, jaws open
+        approach_xy = src_xy if C.DIRECT_DESCENT else t.src  # direct: hover over the final spot, no low sideways step
+        down = self._line(approach_xy, C.Z_SAFE, approach_xy, z_side, seed, 90.0, pts=p_down)  # jaws open
         # The arm is COMMANDED with the measured pick correction (PICK_EXTRA_*: toward the robot's base, toward the
         # fixed finger, lower; eased in over the side step / descent and out over the lift); the points kept for the
         # collision check stay where the fingers really end up (the correction only cancels the arm's error there).
@@ -374,7 +379,7 @@ class PickPlace:
         to_arm /= np.linalg.norm(to_arm)
         corr = np.r_[-C.PICK_EXTRA_LEFT_MM * u_src + C.PICK_EXTRA_TOWARD_ARM_MM * to_arm, -C.PICK_EXTRA_DOWN_MM]
         ramp = lambda pts, a, b, z=True: [p + corr * np.r_[f, f, f if z else 0] for p, f in zip(pts, np.linspace(a, b, len(pts)))]
-        p_side = self._points(t.src, z_side, src_xy, z_side, step_mm=3.0)  # "go left"
+        p_side = self._points(approach_xy, z_side, src_xy, z_side, step_mm=3.0)  # "go left" (nothing to do when direct)
         side = self._path(ramp(p_side, 0, 1, z=False), down[-1])
         p_dg = self._points(src_xy, z_side, src_xy, z_grasp)  # down to the base
         dg = self._path([p + np.r_[corr[:2], corr[2] * f] for p, f in zip(p_dg, np.linspace(0, 1, len(p_dg)))], side[-1])
@@ -439,7 +444,7 @@ class PickPlace:
                     open=open_pct, release_pct=release_pct,
                     down2=down2, up2=up2, grip=spec["grip"], info=info)
 
-    def _jaw_shifted(self, xy, z, seed, shift=None):
+    def _jaw_shifted(self, xy, z, seed, shift=None, lateral=0.0):
         """Tip xy (board mm) that puts the piece centred between the fixed (left) finger and the moving one:
         the piece centre minus JAW_SHIFT_MM along the direction the moving finger opens at that square.
         Also returns that direction (unit, board xy). JAW_SHIFT_MM < 0 shifts the other way."""
@@ -447,7 +452,8 @@ class PickPlace:
         u = self.ik.jaw_open_direction(q)  # robot frame; (the original used placo here)
         ub = (self.T.R.T @ u)[:2]
         ub /= np.linalg.norm(ub)
-        return tuple(np.asarray(xy, float) - (C.JAW_SHIFT_MM if shift is None else shift) * ub), ub
+        perp = np.array([-ub[1], ub[0]])
+        return tuple(np.asarray(xy, float) - (C.JAW_SHIFT_MM if shift is None else shift) * ub + lateral * perp), ub
 
     def _tilt_check(self, q, label):
         T = self.ik.fk(q)
@@ -551,7 +557,7 @@ class PickPlace:
             self._follow(a[:1], opening, C.MIN_MOVE_S)  # hover high over the square
             self.arm.gripper(opening)
             self.arm.settle()  # learn the sag here; the correction carries into the descent
-            self._follow(a, opening, C.DESCEND_S + 0.8)  # down, sideways step, down to the base
+            self._follow(a, opening, (C.DESCEND_S + 0.8) * C.APPROACH_SLOW)  # down, sideways step, down to the base
             # The arm sags and stops a few mm short of where it is told (gravity, weak P gain): measure the shortfall here,
             # at the bottom of the descent, and add it to the command before closing (the same correction hover_test
             # does). Without this the jaws closed 5-10 mm too high.

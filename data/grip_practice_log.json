@@ -1,0 +1,50 @@
+[
+  {
+    "time": "2026-11-05 16:43:56",
+    "piece": "king",
+    "gripper_pct": 9.43,
+    "depth_mm_above_board": 28.5,
+    "wrist_roll_deg": -6.46,
+    "note": "manual teleop practice grip, off-board (not over a square); wrist_roll not at the locked play angle (-96.9); king height ~49.4mm so this grip is slightly above true middle (24.7mm)"
+  },
+  {
+    "time": "2026-11-05 16:44:45",
+    "piece": "pawn",
+    "gripper_pct": 6.26,
+    "depth_mm_above_board": 19.1,
+    "wrist_roll_deg": -6.64,
+    "note": "manual teleop practice grip; pawn height ~24.4mm, designed neck-grip point (piece_profiles.json) is at 7mm, but this grip was at 19.1mm (near the head/top, not the neck); wrist_roll not at the locked play angle (-96.9)"
+  },
+  {
+    "time": "2026-11-05 16:46:21",
+    "piece": "queen",
+    "gripper_pct": 8.7,
+    "depth_mm_above_board": 21.7,
+    "wrist_roll_deg": -6.55,
+    "note": "manual teleop practice grip; queen height ~43.2mm, designed neck-grip point (piece_profiles.json) is at 12mm, but this grip was at 21.7mm (about half way up, not the neck); wrist_roll not at the locked play angle (-96.9)"
+  },
+  {
+    "time": "2026-11-05 16:49:13",
+    "piece": "knight",
+    "gripper_pct": 11.01,
+    "depth_mm_above_board": 1.6,
+    "wrist_roll_deg": -4.7,
+    "note": "manual teleop practice grip; knight height ~32.4mm, designed neck-grip point (piece_profiles.json) is at 10mm, but gripped at the BASE (1.6mm) deliberately, per user: knight shape needs a base grip to avoid tilting the gripper a lot; wrist_roll not at the locked play angle (-96.9)"
+  },
+  {
+    "time": "2026-11-05 16:50:11",
+    "piece": "bishop",
+    "gripper_pct": 8.11,
+    "depth_mm_above_board": 19.2,
+    "wrist_roll_deg": -4.88,
+    "note": "manual teleop practice grip; bishop height ~36.4mm, designed neck-grip point (piece_profiles.json) is at 12mm, but this grip was at 19.2mm (about half way up, not the neck); wrist_roll not at the locked play angle (-96.9)"
+  },
+  {
+    "time": "2026-11-05 16:52:34",
+    "piece": "rook",
+    "gripper_pct": 7.71,
+    "depth_mm_above_board": 21.3,
+    "wrist_roll_deg": -4.79,
+    "note": "manual teleop practice grip, arm manually supported to stop it sagging (torque off); rook height ~29.0mm, grip at 21.3mm is about 73% up the piece; replaces an earlier reading of 29.4mm which looked off (essentially at the top of the piece); wrist_roll not at the locked play angle (-96.9)"
+  }
+]

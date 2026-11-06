@@ -33,11 +33,13 @@ CAM_W, CAM_H, CAM_FPS = 640, 480, 30
 # Main vision camera: sees the whole board (a USB webcam opened as MJPG 1280x720, or an MJPEG URL). A device is an
 # integer index (Windows, DirectShow) or a /dev path (Linux). Windows index 1 = the Ausha webcam on the gripper
 # (index 0 is the laptop's built-in camera; indexes can change if cameras are plugged in a different order).
-EXT_CAMERA_URL = 1 if _WIN else "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0"
-# 2026-11-04 night: the user's PHONE (IP Webcam app, same Wi-Fi) is the fixed third-person camera: MJPEG, 1280x720
-# ~25-29 fps. It replaces the gripper webcam above; the phone's address changes with the network (edit it here).
-# The gripper webcam stays available as EXT_CAMERA_URL = 1.
-EXT_CAMERA_URL = _os.environ.get("CHESS_CAMERA_URL", "http://10.4.246.27:8050/video")  # override per network: $env:CHESS_CAMERA_URL / export CHESS_CAMERA_URL
+EXT_CAMERA_URL = _os.environ.get(
+    "CHESS_CAMERA_URL",
+    1 if _WIN else "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0",
+)
+# 2026-11-05: the phone (IP Webcam) third-person setup was dropped; the Ausha webcam was moved off the gripper and
+# mounted as the fixed third-person camera instead (back to the original rig's arrangement). Override per network
+# with $env:CHESS_CAMERA_URL / export CHESS_CAMERA_URL if it ever needs to point elsewhere.
 # Fallback only (no board calibration yet): True = the main camera is on the robot's side (gripper webcam), so the
 # back rank at the bottom of its image is the ROBOT's; False = human's side (the original rig). With a board
 # calibration, the robot's colour comes from which back rank is nearer its base, whatever the camera does.
@@ -49,7 +51,7 @@ EXT_SHARED_URL = "http://localhost:8770/stream/ext_raw"
 WRIST_STREAM_URL = "http://localhost:8081/stream"  # wrist_stream.py (shares the gripper cam on the network)
 EXT_WHITE_BALANCE = True  # make the webcam's colours match the robot camera before anything uses the frames
 # "Zoom in" (vision/zoom.py): when a square's reading is unsure, re-read it on a full-resolution still from the phone
-ZOOM_ENABLED = True
+ZOOM_ENABLED = False  # needed the phone's full-resolution stills; no phone in this setup
 HIRES_PHOTO_SIZE = "4000x2256"  # the phone app's photo size (stream stays 1280x720); 16:9 like the stream
 HIRES_CORNERS = DATA / "ext_corners_hires.json"  # the board's corners in that still (fitted by hand/auto; refit if the phone moves)
 ZOOM_TRIGGER_CONF = 0.6  # squares read with less confidence than this are re-read at full resolution
@@ -83,7 +85,7 @@ YOLO_IMGSZ = 960
 # King vs queen: YOLO mixes them up; their heights differ (64 vs 58 mm). When YOLO's confidence for a K/Q is below
 # KQ_TRUST_CONF, the piece's height measured from its box (corrected by the other pieces in the frame) decides.
 KQ_HEIGHT_CHECK = True
-KQ_TRUST_CONF = 0.85
+KQ_TRUST_CONF = 0.5  # was 0.85: with our own fine-tuned model the box-height guess flipped a correct K (0.80) to Q
 # Live sync: a piece that stays on its square keeps its known type unless the cameras (stable over several frames)
 # call it something else with at least this confidence. Both cameras agreeing raises the confidence (0.6 and 0.7
 # -> 0.88), disagreeing drops it, so in practice: both cameras agree, or the webcam alone is very sure.
@@ -151,8 +153,8 @@ import os as _os
 # and graspable neck"); "head" = by the head; "base" = at the base (old rig, needs 33 mm squares).
 GRIP_ON = _os.environ.get("CHESS_GRIP_ON", "neck")  # switch without editing: $env:CHESS_GRIP_ON = "base"  (PowerShell)
 HOLD_SQUEEZE_PCT = 1.2  # while carrying, command the jaws this much (%, ~2.4 mm) tighter than where the piece stops them
-GRASP_DEBUG_PHOTOS = True  # save a photo from the gripper camera before / after closing (data/grasp_debug/)
-GRASP_DEBUG_CAM = 1 if _WIN else "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0"  # the webcam mounted on the gripper (Windows: DirectShow index; Linux: v4l by-id path)
+GRASP_DEBUG_PHOTOS = False  # the Ausha webcam moved off the gripper to be the fixed camera (EXT_CAMERA_URL); it's busy there, not available for debug photos
+GRASP_DEBUG_CAM = 1 if _WIN else "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0"  # unused while GRASP_DEBUG_PHOTOS is False
 BASE_GRIP_Z_MM = 4.0  # tip height for a base grasp (like the old GRASP_HEIGHT_MM)
 TOP_GRIP_CLEAR_MM = 8.0  # room each side of the grasped part when the jaws are open for the
                          # approach (tried first; the planner tightens to 3 / 2 / 1.2 mm only where a neighbour is in the way).
@@ -236,6 +238,46 @@ if GRIP_ON == "neck" and _PROF:
 if GRASP_MODE == "base":  # the old grasp: readings taught with calib/teach_grip.py
     for _k, _v in PIECES.items():
         _v.update(grip=_per.get(_k, GRIP_BIG if _k in "qk" else GRIP_SMALL), grip_z=4.0, shift=14.0, held=4.0)
+# Per-piece jaw opening taught by hand (data/grip_practice_log.json, written during the gripping practice): the gripper
+# reading (%) with the piece between the jaws. The approach opens to exactly that reading, so the room each side of the
+# piece = (gap - head width) / 2 (never below 1.2 mm). Pieces without an entry keep TOP_GRIP_CLEAR_MM.
+GRIP_PRACTICE_LOG = DATA / "grip_practice_log.json"
+USE_TAUGHT_OPENING = True
+if USE_TAUGHT_OPENING and GRIP_PRACTICE_LOG.exists():
+    try:
+        import numpy as _np2
+
+        _names = {"pawn": "p", "knight": "n", "bishop": "b", "rook": "r", "queen": "q", "king": "k"}
+        for _e in _json.loads(GRIP_PRACTICE_LOG.read_text()):
+            _s = _names.get(_e.get("piece"))
+            if _s in PIECES:
+                _gap = float(_np2.interp(_e["gripper_pct"], _GAP_PCT, _GAP_MM))
+                PIECES[_s]["taught_open_pct"] = float(_e["gripper_pct"])
+                PIECES[_s]["taught_clear"] = max(1.2, (_gap - PIECES[_s]["head_d"]) / 2)
+    except (OSError, ValueError, KeyError):
+        pass
+# Grasp taught by hand on the real square (calib/teach_grasp.py -> data/taught_grasps.json): tip shift toward the fixed
+# finger, sideways offset, tip height and jaw reading, per piece type. Overrides the numbers above for those pieces.
+TAUGHT_GRASPS = DATA / "taught_grasps.json"
+if TAUGHT_GRASPS.exists():
+    try:
+        import numpy as _np3
+
+        for _s, _g in _json.loads(TAUGHT_GRASPS.read_text()).items():
+            if _s in PIECES:
+                _gap = float(_np3.interp(_g["gripper_pct"], _GAP_PCT, _GAP_MM))
+                PIECES[_s].update(taught_shift=_g["shift_mm"], taught_lateral=_g["lateral_mm"], grip_z=_g["grip_z"],
+                                  taught_open_pct=_g["gripper_pct"],
+                                  taught_clear=max(2.0, (_gap - PIECES[_s]["head_d"]) / 2))
+                if _g.get("held_pct") is not None:
+                    PIECES[_s]["grip"] = float(_g["held_pct"])  # the reading when really holding it
+                if _g.get("release_delta_pct") is not None:
+                    PIECES[_s]["release_pct"] = float(_g["release_delta_pct"])  # how much further to open to let go
+    except (OSError, ValueError, KeyError):
+        pass
+# The grasp used to hover centred over the piece and then step sideways (joint 1 swinging left) right next to it.
+# True = hover high straight over the final grasp spot and only go straight down.
+DIRECT_DESCENT = True
 # From the teleop demonstrations (data/demos, analyze_demo; medians of the 5 clean demos, 2026-10-17):
 GRASP_HEIGHT_MM = 4.0  # jaw tip this far above the surface when grasping: pieces grabbed at the bottom (demos 0-11)
 JAW_SHIFT_MM = 14.0  # the LEFT finger is fixed: the tip goes this far toward it before closing, so that finger lands
@@ -295,7 +337,8 @@ ARC_MIN_MM = 90.0  # even short moves lift clearly
 ARC_MAX_MM = 110.0
 ARC_RISE_FRACTION = 0.85  # vertical part of the lift; the rest is the hump in the middle of the travel
 DETOUR_COST = 0.4  # mm of peak height one mm of extra path length is worth (bend around vs go over)
-SIDE_STEP_CLEAR_MM = 12.0  # the sideways "go left" step happens this far above the piece's top
+SIDE_STEP_CLEAR_MM = 20.0  # the sideways "go left" step happens this far above the piece's top (was 12: the arm measured ~10 mm lower than commanded)
+APPROACH_SLOW = 2.5  # the down / sideways-step / down approach to a piece takes this much longer (the arm was pushing pieces)
 # Tight-spot grasp, learned from the crowded teleop demos (2026-10-18: neighbours on the fixed-finger side, the
 # moving-finger side, both sides; analyze_demo). Used only when the normal grasp would hit a neighbour. You opened
 # less, shifted less, did the sideways step above the neighbours and opened only ~2 % to let go.
