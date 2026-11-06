@@ -94,3 +94,35 @@ The dataset is in `data/dataset/`. New camera position = refit the grid on the e
 - New tools for the next step (the grasp): `calib/locate_piece.py` (YOLO -> board mm -> robot -> straight-down hover over a piece),
   `calib/compare_pose.py` and `calib/handeye_sample.py` (read the arm held by hand and compare it with the camera/maths), `scripts/teach_demo.sh`
   (teleop recorder: all joints + video). `ui/server.py`: click a highlighted move and the arm plays it (confirmation first), dry-run shows what to do by hand.
+
+## Grasping, later the same day (READ THIS FIRST in a new chat)
+**State at the end:** every piece type has a VERIFIED pick-and-place on an EMPTY board (c2 -> c3, landed upright within 1-3 mm); crowded squares are NOT solved.
+The arm is home (roll -96.8), camera window running (scratchpad script, http://127.0.0.1:8771), pipeline (dry-run) on :8770.
+
+### The recipe that works (all six types: p r n b q k)
+Vertical tool (tilt 0), wrist roll -96.9 (jaws open along board x, the FIXED finger on the a-file side), safe height then straight down to
+**15 mm** tip height (the pawn: 1 mm, base grip), jaws open 16.1 % (~33 mm), tip **5 mm toward the a-file** from the piece centre
+(pawn 7.7 mm), then a **SLOW contact-sensing close** (`motion/slow_grip.py`: 0.5 % steps, contact = measured jaw lags the command by > 1 %, light squeeze),
+lift 30 mm, carry, lower, **slow release**, lift, home. Contact readings: p 6.7, r 8.6, n 5.6, b 7.1, q 8.7, k 8.7 % (2.2-2.6 % = the jaws closed on AIR).
+Per-piece numbers, YOLO bias and place corrections: `data/vision_grasps.json`. Pick positions come from YOLO (bias removed): `calib/teach_piece measure`.
+
+### Tools (all in src/chess_player/calib unless noted)
+- `locate_piece.py`: hover over a piece from YOLO with LIVE nudge commands (`z -5`, `x 3`, `y -2`, `open 12`, `close` (slow), `home`); `--height --shift-x/-y --open --roll --go`.
+  Run it with stdin from a file (`tail -n 0 -f cmds | python -u -m ... --go`) to drive it from a script; the first Enter starts the arm.
+- `grasp_vision.py`: one command pick and place from YOLO using the saved grasp (slow close/release). `grasp_joint.py`: replay a hand-taught joint pose (needs the piece where it stood when taught).
+- `teach_piece.py measure|record`, `compare_pose.py`, `handeye_sample.py`, `handeye_marker.py` (needs a coloured sticker on the gripper; not used), `src/tools/torque.py hand` (arm limp, wrist roll held), `src/tools/safe_lift.py` (home).
+- `board_correction.json` is the identity; `board_to_robot.json` is the 6-point corner touch (judged accurate by eye); backups `board_to_robot.*.json`.
+
+### Lessons (mistakes that cost hours; do not repeat)
+1. The jaw TIP frame is the FIXED finger's inner face (10 mm thick toward the a-file); the middle of the opening is gap/2 toward the h-file. A piece must have the fixed pad nearly touching BEFORE closing, or the moving jaw pushes it away.
+2. A FAST close pushes narrow pieces over; use `slow_close`. Do not compare the measured jaw with a target built from the measured jaw (contact check bug).
+3. Never close the gripper while lifting out of a grasp: it carries the piece. Open first.
+4. YOLO is fooled by the arm in the picture: measure the piece with the arm HOME, or pass `--xy`. Tall pieces can flip between c1/c2.
+5. YOLO's base point is a few mm off the true centre per piece type (`yolo_base_point_bias_mm`).
+6. A hand-taught pose is only valid relative to where the piece really was; the camera cannot see the piece under the gripper. A replay of a pose with a tilted tool (18-23 deg) did not work; the VERTICAL recipe did.
+7. The wrist roll range is +-180: asking for +83.1 (jaws the other way) made the wrist turn the long way round. Do not use roll flips without checking the path.
+
+### NOT solved
+- **Crowded squares.** Fingers are 10 (fixed) and 12 mm (moving) thick, neighbouring bases are 5.5 mm apart. The 33 mm opening puts the moving finger in a neighbour on the h-file side. A 5 % opening (10 mm) leaves ~1 mm per side: pushed the pawn. Rolling the wrist 90 deg (jaws along y) also pushed the pawn. Rolling 180 deg (fixed finger on the crowded side) made the wrist spin; untested properly.
+  Ideas: move a neighbour aside first; thinner fixed finger (hardware); choose the free side by rule; teach the crowded grasp by hand with the VERTICAL roll -96.9 and the neighbours in place.
+- Castling, captures (graveyard), promotion, knight grips from b1/g1: untested with the arm. Full game with the real arm: never run. Voice: untested. Model weights `data/yolo/best.pt` are NOT in git.

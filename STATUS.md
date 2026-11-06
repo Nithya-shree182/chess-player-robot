@@ -2,7 +2,10 @@
 
 Last updated: **2026-11-06** (vision session on Ubuntu). Earlier sessions: [docs/SESSION_LOG_2026-11-05.md](docs/SESSION_LOG_2026-11-05.md) (Windows setup).
 
-## Update 2026-11-06: vision is done for now, picking is not
+## Update 2026-11-06 (evening): picking works on an empty board for all six piece types; crowded squares are the open problem
+See the section "Grasping, later the same day" at the end of [docs/SESSION_LOG_2026-11-06.md](docs/SESSION_LOG_2026-11-06.md): the working recipe, the tools, the lessons and what is NOT solved.
+
+## Update 2026-11-06 (morning): vision is done for now
 Full map of the session: [docs/SESSION_LOG_2026-11-06.md](docs/SESSION_LOG_2026-11-06.md). Short version:
 - The fixed camera is the Ausha webcam looking from the human's side, raised and tilted down; the grid for it is in `data/ext_corners.json` (locked copy
   `data/ext_corners.locked-oblique.json`). Camera brightness 95 (default 128 blows out the white pieces). Refit the grid on an EMPTY board whenever the camera moves.
