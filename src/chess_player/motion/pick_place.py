@@ -349,12 +349,12 @@ class PickPlace:
         z_side = spec["height"] + surface_z(t.src) + C.SIDE_STEP_CLEAR_MM  # just above the piece's top
         if top_mode:
             clear = C.TOP_GRIP_CLEAR_MM if clear is None else clear
-            open_pct = C.gap_to_pct(spec["head_d"] + 2 * clear)  # jaws open just wide enough around the head
+            open_pct = min(C.gap_to_pct(spec["head_d"] + 2 * clear), C.GRIP_OPEN_MAX_PCT)  # just wide enough around the head, never past the taught maximum
             release_pct = spec["release_pct"]
             release_gap = C.TOP_RELEASE_OPEN_MM
             tight = False
         else:
-            open_pct = C.TIGHT_GRIPPER_OPEN if tight else C.GRIPPER_OPEN
+            open_pct = min(C.TIGHT_GRIPPER_OPEN if tight else C.GRIPPER_OPEN, C.GRIP_OPEN_MAX_PCT)
             release_pct = C.TIGHT_RELEASE_OPEN_PCT if tight else C.RELEASE_OPEN_PCT
             release_gap = release_pct * C.JAW_MM_PER_PCT if tight else C.RELEASE_GAP_MM
         if tight:  # step sideways above everything near the square, then straight down

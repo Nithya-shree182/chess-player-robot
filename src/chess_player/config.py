@@ -168,6 +168,11 @@ TOP_HELD_REL_MM = 0.0  # held piece centre from the tip = head radius + this
 TOP_ARC_MM = (22.0, 38.0)  # carry lift above the grasp point (min, max): the held piece already hangs high
 # Gripper reading (%) <-> gap between the finger pads (mm) of THIS gripper, measured with a ruler (calib/gripper_gap.py).
 # Until measured, a rough guess (100 % = 70 mm) keeps planning possible; the arm must NOT be run top-grip before measuring.
+GAP_FILE = DATA / "gripper_max_open.json"
+try:  # the widest opening a grasp approach may use (%), taught by hand: data/gripper_max_open.json
+    GRIP_OPEN_MAX_PCT = float(_json.loads(GAP_FILE.read_text())["pct"])
+except (OSError, ValueError, KeyError):
+    GRIP_OPEN_MAX_PCT = 100.0  # no limit until taught
 GAP_FILE = DATA / "gripper_gap.json"
 try:
     _gp = _json.loads(GAP_FILE.read_text())
