@@ -72,5 +72,38 @@
     "step_pct": 0.5,
     "lag_pct": 1.0,
     "verified": "2026-11-06 rook: contact 8.6 %, squeeze 8.4 %, upright place"
+  },
+  "n": {
+    "yolo_base_point_bias_mm": [
+      2.0,
+      1.7
+    ],
+    "working_recipe": {
+      "approach": "vertical tool, safe height then straight down, jaws open 16.1 %",
+      "hover_height_mm": 15.0,
+      "tip_offset_from_piece_centre_mm": [
+        -5.0,
+        0.0
+      ],
+      "close": "slow_close(): contact at 5.6 %, squeezed to 5.5 % (gap ~12 mm: the neck)",
+      "lift": "30 mm, held 10 s without slipping",
+      "carry": "+25 mm in y to c3, down to the grasp height + 1.5, slow_release to 16 %",
+      "place_correction_mm": [
+        2.8,
+        -0.3
+      ],
+      "verified": "2026-11-06: knight c2 -> c3, landed upright 2.8 mm toward the a-file of the c3 centre, same recipe as the rook"
+    },
+    "place_correction_mm": [
+      2.8,
+      -0.3
+    ],
+    "depth_mm": 15.0,
+    "open_pct": 16.1,
+    "tip_offset_from_piece_centre_mm": [
+      -5.0,
+      0.0
+    ],
+    "grip": "vertical slow close (rook recipe)"
   }
 }
