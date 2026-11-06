@@ -105,5 +105,38 @@
       0.0
     ],
     "grip": "vertical slow close (rook recipe)"
+  },
+  "b": {
+    "yolo_base_point_bias_mm": [
+      1.4,
+      2.0
+    ],
+    "working_recipe": {
+      "approach": "vertical tool, safe height then straight down, jaws open 16.1 %",
+      "hover_height_mm": 15.0,
+      "tip_offset_from_piece_centre_mm": [
+        -5.0,
+        0.0
+      ],
+      "close": "slow_close(): contact at 7.1 %, squeezed to 6.9 %",
+      "lift": "30 mm, held several seconds",
+      "carry": "+25 mm in y to c3, down, slow_release to 16 %",
+      "place_correction_mm": [
+        1.6,
+        1.0
+      ],
+      "verified": "2026-11-06: bishop c2 -> c3, landed upright within 1.6 / 1.0 mm of the c3 centre, same recipe as the rook and knight"
+    },
+    "place_correction_mm": [
+      1.6,
+      1.0
+    ],
+    "depth_mm": 15.0,
+    "open_pct": 16.1,
+    "tip_offset_from_piece_centre_mm": [
+      -5.0,
+      0.0
+    ],
+    "grip": "vertical slow close (rook recipe)"
   }
 }
