@@ -68,6 +68,7 @@ def main():
     ap.add_argument("--open", type=float, default=0.0, help="gripper opening in %% while hovering (never above the taught maximum)")
     ap.add_argument("--shift-x", type=float, default=0.0, help="mm to move the tip from the piece centre toward the h-file (negative = toward the a-file)")
     ap.add_argument("--shift-y", type=float, default=0.0, help="mm toward rank 8 (negative = toward the robot)")
+    ap.add_argument("--roll", type=float, help="wrist roll in deg (default: the playing roll -96.9, jaws open along board x). -6.9 = jaws open along +y (toward rank 8); -186.9 = along -y")
     ap.add_argument("--go", action="store_true", help="move the real arm")
     a = ap.parse_args()
 
@@ -90,14 +91,15 @@ def main():
     print(f"2. board mm: x {xy[0]:.1f}, y {xy[1]:.1f}   (the centre of {a.square} is x {centre[0]:.1f}, y {centre[1]:.1f}; "
           f"the piece is off by dx {xy[0] - centre[0]:+.1f}, dy {xy[1] - centre[1]:+.1f} mm)")
     print(f"   hover height: {z:.0f} mm above the board ({spec['height']:.0f} mm piece + clearance)")
-    T, ik = BoardToRobot.load(), IK()
+    roll = C.WRIST_ROLL_DEG if a.roll is None else a.roll
+    T, ik = BoardToRobot.load(), IK(wrist_roll_deg=roll)
     target = T(xy[0], xy[1], z)
     print(f"3. robot frame (m): x {target[0]:.4f}, y {target[1]:.4f}, z {target[2]:.4f}   (board->robot fit residual {T.residual_mm if hasattr(T, 'residual_mm') else 'n/a'} mm)")
     from chess_player.motion.arm import look_pose
 
     look = {**look_pose(), "gripper": C.GRIPPER_LOOK}
     q0 = np.array([look[j] for j in C.ARM_JOINTS])
-    q0[4] = C.WRIST_ROLL_DEG
+    q0[4] = roll
     hi = solve_or_raise(ik, T(xy[0], xy[1], C.Z_SAFE), q0, what="safe height")
     lo, err, tilt = ik.solve(target, hi, C.GRASP_MAX_TILT)
     pb = T.R.T @ (ik.fk(lo)[:3, 3] - T.t) * 1000
