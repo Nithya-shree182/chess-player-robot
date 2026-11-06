@@ -33,15 +33,19 @@ def main():
     ap.add_argument("--source", choices=["leader", "follower"], default="leader")
     ap.add_argument("--url", default=str(C.EXT_CAMERA_URL))
     ap.add_argument("--clearance", type=float, default=25.0, help="for the maths pose: tip height above the piece's top")
+    ap.add_argument("--piece-xy", help='board mm "x,y" of the piece, if the arm hides it from YOLO (use the reading from before the arm came)')
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--save", action="store_true")
     a = ap.parse_args()
 
     sq = chess.parse_square(a.square)
-    got = locate(grab(a.url), sq)
-    if got is None:
-        raise SystemExit(f"YOLO sees no piece on {a.square}")
-    sym, conf, xy, _box, _view, _base = got
+    if a.piece_xy:
+        xy, sym, conf = np.array([float(v) for v in a.piece_xy.split(",")]), "P", 0.0
+    else:
+        got = locate(grab(a.url), sq)
+        if got is None:
+            raise SystemExit(f"YOLO sees no piece on {a.square} (hidden by the arm? give --piece-xy x,y)")
+        sym, conf, xy, _box, _view, _base = got
     T, ik = BoardToRobot.load(), IK()
     fcal, lcal = Cal(FOLLOWER_CAL), Cal(LEADER_CAL)
     bus = make_bus(C.LEADER_PORT if a.source == "leader" else C.FOLLOWER_PORT, LEADER_CAL if a.source == "leader" else FOLLOWER_CAL)
