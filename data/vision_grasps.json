@@ -40,10 +40,29 @@
     "place_extra_mm": 2.0,
     "grip": "hand-taught",
     "place_correction_mm": [
-      2.4,
-      -1.5
+      2.1,
+      -0.4
     ],
     "taught": "2026-11-06 17:30:15",
-    "notes": "taught by holding the arm on the piece; tip frame = fixed finger face"
+    "notes": "taught by holding the arm on the piece; tip frame = fixed finger face",
+    "working_recipe": {
+      "approach": "vertical tool (tilt 0), safe height then straight down, jaws open 16.1 %",
+      "hover_height_mm": 15.0,
+      "tip_offset_from_piece_centre_mm": [
+        -5.0,
+        0.0
+      ],
+      "close": "SLOW: 0.5 % steps (about 1 s each), stop at contact, light squeeze (HOLD_SQUEEZE_PCT)",
+      "contact_reading_pct": 8.6,
+      "squeezed_pct": 8.4,
+      "lift": "straight up 30 mm held fine",
+      "carry": "+25 mm in y to c3, down to the grasp height + 1.5",
+      "place_correction_mm": [
+        2.1,
+        -0.4
+      ],
+      "verified": "2026-11-06: rook c2 -> c3, landed upright 2.1 mm toward a-file of the c3 centre",
+      "note": "Earlier tilted / fast-close attempts pushed the rook over; what fixed it: the fixed pad nearly touches the rook before closing (tip ~5 mm from the centre), a SLOW contact-sensing close, vertical tool."
+    }
   }
 }
