@@ -521,6 +521,14 @@ class Conductor:
         self.emit("robot_done", san=san, check=self.s.board.is_check(), eval=self.eval)
         if self.s.has_vision:
             ok, details = self.s.verify_position()
+            if not ok and self.arm_mode == "simulated":  # dry run: nothing moved, the camera cannot show the robot's move
+                src, dst = chess.square_name(move.from_square), chess.square_name(move.to_square)
+                self.log(f"dry run: the arm is simulated, play {san} ({src} to {dst}) by hand, then press Done")
+                self.help = {"kind": "fix_board", "sim": True, "san": san, "src": src, "dst": dst,
+                             "why": f"The arm is simulated, so nothing moved. Play {san} on the board by hand ({src} to {dst}), then press Done."}
+                self.say("need_help", f"Dry run: play {san} by hand ({src} to {dst}), then press 'Done'.")
+                self.emit("fix_board")
+                return
             if not ok:
                 self.log(f"board check after {san}: {details}")
                 self.help = {"kind": "fix_board", "why": details}

@@ -384,6 +384,7 @@ function renderHelp(s) {
   if (!s.help) { h.className = "help"; h.innerHTML = ""; return; }
   const k = s.help.kind; let html = "";
   if (k === "robot_by_hand") html = `<b>Please play <span class="mono">${esc(s.help.san)}</span> for me by hand.</b><p>${esc(s.help.why || "")}</p><button class="go" onclick="act('done_by_hand')">Done, I moved it</button>`;
+  else if (k === "fix_board" && s.help.sim) html = `<b>Dry run: play ${esc(s.help.san || "")} by hand</b><p>${esc(s.help.why || "")}</p><button class="go" onclick="act('done_by_hand')">Done</button>`;
   else if (k === "fix_board") html = `<b>The board doesn't look right.</b><p>${esc(s.help.why || "")}</p><button class="go" onclick="act('done_by_hand')">Fixed it</button>`;
   else if (k === "which_move") html = `<b>Which move did you play?</b><p>${esc(s.help.why || "")}. Pick one, or type it.</p><div class="row">` +
     (s.help.candidates || []).map((m) => `<button onclick="post('/api/human_move',{move:'${m}'})">${esc(m)}</button>`).join("") + `</div>`;
