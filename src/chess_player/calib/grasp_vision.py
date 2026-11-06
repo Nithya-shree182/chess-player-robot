@@ -29,6 +29,8 @@ def main():
     ap.add_argument("--shift-x", type=float, default=0.0, help="mm to move the tip toward the h-file (left in the camera picture) from the piece centre")
     ap.add_argument("--shift-y", type=float, default=0.0, help="mm to move the tip toward rank 8 (toward you / down in the camera picture)")
     ap.add_argument("--xy", help='the piece position in board mm "x,y" (use when the arm is in the picture and would fool YOLO)')
+    ap.add_argument("--place-dx", type=float, default=0.0, help="mm added to the PLACE position in board x (+ = toward the h-file) to centre the piece on the target")
+    ap.add_argument("--place-dy", type=float, default=0.0, help="mm added to the PLACE position in board y (+ = toward rank 8)")
     ap.add_argument("--url", default=str(C.EXT_CAMERA_URL))
     ap.add_argument("--auto-close", action="store_true", help="close at the depth without the first Enter (you already approved it)")
     ap.add_argument("--dry", action="store_true")
@@ -54,6 +56,9 @@ def main():
     if a.depth is None:
         raise SystemExit("no --depth and no saved grasp for this piece")
     dst = np.asarray(square_center_mm(chess.parse_square(a.dst))) + np.array([a.shift_x, a.shift_y])  # the piece hangs where the tip held it
+    if sg and a.place_dx == 0.0 and a.place_dy == 0.0:
+        a.place_dx, a.place_dy = sg.get("place_correction_mm", [0.0, 0.0])  # centres the piece on the target square
+    dst = dst + np.array([a.place_dx, a.place_dy])
     xy = np.asarray(xy, float) + np.array([a.shift_x, a.shift_y])
     T, ik = BoardToRobot.load(), IK()
     look = {**look_pose(), "gripper": C.GRIPPER_LOOK}

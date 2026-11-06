@@ -16,6 +16,11 @@
     ],
     "grip": "base",
     "verified": "2026-11-06: pawn on c2, lifted and held through the lift to 45 mm",
-    "notes": "Tip at the board surface; the pads close around the pawn's base. Head/neck grasps from above never held it (closed on air, 2.5-2.8 %). The tip frame is the FIXED finger's face: the middle of the opening is gap/2 (about 16 mm when fully open) toward the h-file from it, so the tip sits 7.7 mm toward the a-file of the centre. YOLO's base point reads about 3.3 mm toward rank 8 of the true centre (pawn placed on the c2 centre read y 40.8 vs 37.5); subtract it when the position comes from YOLO."
+    "notes": "Tip at the board surface; the pads close around the pawn's base. Head/neck grasps from above never held it (closed on air, 2.5-2.8 %). The tip frame is the FIXED finger's face: the middle of the opening is gap/2 (about 16 mm when fully open) toward the h-file from it, so the tip sits 7.7 mm toward the a-file of the centre. YOLO's base point reads about 3.3 mm toward rank 8 of the true centre (pawn placed on the c2 centre read y 40.8 vs 37.5); subtract it when the position comes from YOLO.",
+    "place_correction_mm": [
+      2.4,
+      -1.5
+    ],
+    "verified_place": "2026-11-06: c2->c3 landed 2.4 mm toward a-file / 1.5 mm toward rank 8 of centre; with the correction c3->c2 landed within 1.5 mm (dx -1.5, dy -0.2)"
   }
 }
