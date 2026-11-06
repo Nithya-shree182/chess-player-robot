@@ -1,0 +1,25 @@
+{
+  "px": [
+    [
+      804.4,
+      345.9
+    ],
+    [
+      311.1,
+      325.3
+    ],
+    [
+      151.2,
+      648.3
+    ],
+    [
+      916.4,
+      666.1
+    ]
+  ],
+  "url": "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0",
+  "auto": {
+    "empty_board": true,
+    "refined_with_corners": 35
+  }
+}

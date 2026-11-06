@@ -1,0 +1,27 @@
+{
+  "px": [
+    [
+      96.7,
+      501.9
+    ],
+    [
+      735.4,
+      491.5
+    ],
+    [
+      657.4,
+      124.0
+    ],
+    [
+      118.5,
+      149.5
+    ]
+  ],
+  "url": "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0",
+  "auto": {
+    "empty_board": true,
+    "refined_with_corners": 24,
+    "manual_accept": true,
+    "note": "accepted below the 30-corner auto threshold after visual check; glare on a few squares"
+  }
+}
