@@ -69,7 +69,7 @@ def main():
     print(f"taught: tip {np.round(pose['tip_board_mm'], 1).tolist()}, tilt {pose['tilt_deg']} deg, jaws {held_gripper:.1f} %")
     print(f"solved grasp joints {np.round(q_grasp, 2).tolist()} (taught {np.round(u[:5], 2).tolist()}); tip error {e0:.2f} mm; "
           f"pre-grasp err {e1:.2f}, carry err {e2:.2f}, place err {e3:.2f} mm")
-    if max(e0, e1, e2, e3) > 2.0:
+    if max(e0, e1, e3) > 2.0 or e2 > 6.0:  # the carry pose is only passed through in the air: it may be a few mm off
         raise SystemExit("cannot reproduce the taught tool angle at one of the poses: not moving")
     if a.dry:
         print("(dry run: nothing moved)")
