@@ -341,7 +341,7 @@ class Conductor:
         # chess sense: types persist unless the cameras agree on a change, moved pieces keep theirs, one king
         seen, votes = self._fused(dets)
         b, unsure = GS.merge_seen(game, seen, votes=votes)
-        if GS.looks_like_start(b):  # the starting setup: exact standard position, whatever types YOLO guessed
+        if GS.looks_like_start(b, seen=seen):  # the starting setup: exact standard position, unless a confident reading says otherwise
             b, unsure = chess.Board(), []
         diff = [chess.square_name(sq) for sq in chess.SQUARES
                 if (game.piece_at(sq) and game.piece_at(sq).symbol()) != (b.piece_at(sq) and b.piece_at(sq).symbol())]
@@ -377,7 +377,7 @@ class Conductor:
             return
         seen, votes = self._fused(dets)
         b, unsure = GS.merge_seen(self.s.board, seen, type_conf=C.RECHECK_TYPE_CONF, votes=votes)
-        if GS.looks_like_start(b):
+        if GS.looks_like_start(b, seen=seen):
             b, unsure = chess.Board(), []
             self.log("recheck: the starting position")
         self.job_set_position(b.fen(), quiet=True)
@@ -689,7 +689,8 @@ class Conductor:
                 b.set_piece_at(sq, chess.Piece.from_symbol(sym))
         b.turn = self.s.board.turn
         b.castling_rights = b.clean_castling_rights()
-        if GS.looks_like_start(b):  # the starting setup: exact standard position (king e1, queen d1, White to move)
+        voted = {sq: (c.most_common(1)[0][0], c.most_common(1)[0][1] / len(hist)) for sq, c in votes.items() if c.most_common(1)[0][0] != "."}
+        if GS.looks_like_start(b, seen=voted):  # the starting setup: exact standard position (king e1, queen d1, White to move)
             b, unsure = chess.Board(), []
         return b.fen(), {"readings": len(hist), "pieces": len(b.piece_map()), "unsure": unsure, "valid": b.is_valid()}
 

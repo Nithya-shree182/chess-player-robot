@@ -153,15 +153,25 @@ def why_illegal(board: chess.Board) -> list[str]:
     return out
 
 
-def looks_like_start(board: chess.Board, min_pieces: int = 30) -> bool:
+def looks_like_start(board: chess.Board, min_pieces: int = 30, seen: dict | None = None, trust_conf: float = 0.8) -> bool:
     """The cameras show the starting setup: every piece on its side's first two ranks, at most a couple hidden
     (e.g. the king and queen under the gripper), nothing anywhere else. Then the position IS the standard start,
-    whatever piece types the cameras guess (king e1, queen d1, ..., White to move)."""
+    whatever piece types the cameras guess (king e1, queen d1, ..., White to move).
+
+    Exception: if `seen` ({square: (symbol, confidence)}) holds a confident reading (>= trust_conf) that contradicts the
+    standard piece on its start square (e.g. a queen on d7 where the start has a pawn), the pieces are NOT in the
+    standard setup and the shortcut must not hide that."""
     start = chess.Board()
-    seen = board.piece_map()
-    if len(seen) < min_pieces:
+    pm = board.piece_map()
+    if len(pm) < min_pieces:
         return False
-    return all(start.piece_at(sq) is not None and start.piece_at(sq).color == p.color for sq, p in seen.items())
+    if not all(start.piece_at(sq) is not None and start.piece_at(sq).color == p.color for sq, p in pm.items()):
+        return False
+    for sq, (sym, conf) in (seen or {}).items():
+        sp = start.piece_at(sq)
+        if sp is not None and conf >= trust_conf and sym != sp.symbol():
+            return False
+    return True
 
 
 def merge_seen(game: chess.Board, seen: dict, type_conf=None, votes=None) -> tuple[chess.Board, list[str]]:
