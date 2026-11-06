@@ -64,11 +64,19 @@ def main():
 
     q_grasp, e0 = at(piece - base_xy, 0.0, u)
     q_pre, e1 = at(piece - base_xy, a.lift, q_grasp)
+    tip_pre = tip_hold + T.R @ np.array([*(piece - base_xy), a.lift]) / 1000.0
+    q_top, e_top = solve_axis(ik, tip_pre, np.array([0.0, 0.0, -1.0]), q_pre, u[4])  # SAME tip as q_pre, tool straight down
+    tip_safe = tip_hold + T.R @ np.array([*(piece - base_xy), C.Z_SAFE - pose["tip_board_mm"][2]]) / 1000.0
+    q_safe, e_safe = solve_axis(ik, tip_safe, np.array([0.0, 0.0, -1.0]), q_top, u[4])
+    descent = [at(piece - base_xy, z, q_pre)[0] for z in np.linspace(a.lift, 0.0, 7)[1:]]  # straight down at the taught tilt
     q_dst_pre, e2 = at(dst - base_xy, a.lift, q_pre)
     q_dst, e3 = at(dst - base_xy, 2.0, q_dst_pre)
     print(f"taught: tip {np.round(pose['tip_board_mm'], 1).tolist()}, tilt {pose['tilt_deg']} deg, jaws {held_gripper:.1f} %")
     print(f"solved grasp joints {np.round(q_grasp, 2).tolist()} (taught {np.round(u[:5], 2).tolist()}); tip error {e0:.2f} mm; "
           f"pre-grasp err {e1:.2f}, carry err {e2:.2f}, place err {e3:.2f} mm")
+    print(f"top-down pose over the piece: tip error {e_top:.2f} mm, tool tilt {np.degrees(np.arccos(np.clip(-ik.fk(q_top)[2, 2], -1, 1))):.1f} deg")
+    if e_top > 2.0 or e_safe > 3.0:
+        raise SystemExit("cannot point straight down over the piece: not moving")
     if max(e0, e1, e3) > 2.0 or e2 > 6.0:  # the carry pose is only passed through in the air: it may be a few mm off
         raise SystemExit("cannot reproduce the taught tool angle at one of the poses: not moving")
     if a.dry:
@@ -77,6 +85,19 @@ def main():
 
     arm = Arm()
     look = {**look_pose(), "gripper": C.GRIPPER_LOOK}
+
+    def converge(q, grip, tol=0.4, rounds=4):
+        """The arm stops a few degrees short of a command (gravity, weak gain): add the measured shortfall, repeat."""
+        cmd = np.array(q, float)
+        for _ in range(rounds):
+            now = arm.present()
+            err = np.array(q, float) - np.array([now[j] for j in J])
+            if np.abs(err).max() < tol:
+                break
+            cmd = cmd + err
+            arm.move_to({**dict(zip(J, cmd)), "gripper": grip}, 1.0)
+        now = arm.present()
+        return float(np.abs(np.array(q, float) - np.array([now[j] for j in J])).max())
 
     def goto(q, grip, dur=None):
         arm.move_to({**dict(zip(J, q)), "gripper": grip}, dur)
@@ -90,10 +111,19 @@ def main():
             arm.dwell()
             qu, _ = solve_axis(ik, ik.fk(qn)[:3, 3] + T.R @ np.array([0, 0, 100.0 - tn[2]]) / 1000.0, ik.fk(qn)[:3, 2], qn, qn[4])
             goto(qu, a.open, C.DESCEND_S)
-        goto(q_pre, a.open)
-        arm.settle()
-        goto(q_grasp, a.open, C.DESCEND_S + 1.5)
-        arm.settle()
+        print("1) top-down over the piece: first at the safe height, then straight down")
+        goto(q_safe, a.open, 3.0)
+        converge(q_safe, a.open)
+        goto(q_top, a.open, 2.0)
+        converge(q_top, a.open)
+        print("2) tilting to your taught angle in the air (the tip stays put)")
+        goto(q_pre, a.open, 2.5)
+        converge(q_pre, a.open)
+        print("3) straight down at your tilt into the exact joints")
+        for q in descent:
+            goto(q, a.open, 1.2)
+        shortfall = converge(q_grasp, a.open)
+        print(f"   worst joint still short of your pose: {shortfall:.2f} deg")
         got = arm.present()
         tip = T.R.T @ (ik.fk(np.array([got[j] for j in J]))[:3, 3] - T.t) * 1000
         print(f"AT THE TAUGHT POSE, jaws open: tip ({tip[0]:.1f}, {tip[1]:.1f}, {tip[2]:.1f}) mm; taught ({pose['tip_board_mm'][0]}, "
@@ -104,7 +134,9 @@ def main():
         held = arm.present()["gripper"]
         print(f"closed: jaws stopped at {held:.1f} % (taught hold {held_gripper:.1f} %)" + ("  <-- NOTHING IN THE HAND" if held < held_gripper * 0.5 else ""))
         hold = max(0.0, held - C.HOLD_SQUEEZE_PCT)
-        goto(q_pre, hold, C.CARRY_UP_S)
+        for q in descent[::-1]:
+            goto(q, hold, 1.2)
+        goto(q_pre, hold, 1.2)
         input("Is it held? Enter = carry and place, Ctrl+C = back up and stop: ")
         goto(q_dst_pre, hold, 3.5)
         goto(q_dst, hold, C.CARRY_DOWN_S)
