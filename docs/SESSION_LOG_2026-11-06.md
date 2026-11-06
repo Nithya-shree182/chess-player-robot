@@ -79,3 +79,18 @@ The dataset is in `data/dataset/`. New camera position = refit the grid on the e
 - The picking problem in STATUS.md is untouched by this session.
 - Setups for real games must be standard (queen on d1/d8), otherwise the engine and the board disagree.
 - Two 17 MB debug videos (`data/pick_attempt*.mp4`) from the earlier session are left uncommitted.
+
+## Board-to-robot calibration, later the same day (the camera shifted nothing; the BOARD had moved relative to the robot)
+- `hover_test` on the empty board showed the tip landing about 5 cm (toward the a-file and rank 8) from the target; measured from the picture with the
+  camera pose, fingertip vs where the maths put it (48.8, 49.0 mm). A 2-D shift (+48.8, -49.0) brought it to ~1 cm (`data/hover_check2/montage_after.jpg`).
+- The marker-based hand-eye calibration (`calib/handeye_marker.py`, self-test recovers a 64 mm error to 1.6 mm) was written but NOT used: no sticker at hand.
+- A fresh 6-point corner touch (`calib/board_to_robot --centers`) fitted badly by its own checks (RMS 16.5 mm, side mismatch 44 mm, tool tilt 19-27 deg at the touches),
+  but a hover test with it, watched by eye, was accurate. It is the ACTIVE `data/board_to_robot.json` now. Saved aside: `board_to_robot.touch-corners-2026-11-06.json`
+  (same), `board_to_robot.baked-baseline-2026-11-06.json` (the 2026-11-05 17-point fit with the shift baked in: the fallback),
+  `board_to_robot.before-touch-2026-11-06.json` (the original 17-point fit).
+- Then `calib/nudge_calibrate --height 20` over 10 squares (a8 h8 a4 h4 a1 h1 d1 d8 d4 e5): every square was accepted with NO nudge (h8 could have gone 2-3 mm),
+  so `data/board_correction.json` is the identity. Calibration is good to ~2-3 mm by eye over the board, judged at 20 mm height.
+- Gripper: the widest opening any grasp approach may use is 16.1 % (~33 mm), `data/gripper_max_open.json` -> `config.GRIP_OPEN_MAX_PCT`.
+- New tools for the next step (the grasp): `calib/locate_piece.py` (YOLO -> board mm -> robot -> straight-down hover over a piece),
+  `calib/compare_pose.py` and `calib/handeye_sample.py` (read the arm held by hand and compare it with the camera/maths), `scripts/teach_demo.sh`
+  (teleop recorder: all joints + video). `ui/server.py`: click a highlighted move and the arm plays it (confirmation first), dry-run shows what to do by hand.
