@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--lift", type=float, default=45.0, help="tip height while carrying (mm)")
     ap.add_argument("--shift-x", type=float, default=0.0, help="mm to move the tip toward the h-file (left in the camera picture) from the piece centre")
     ap.add_argument("--shift-y", type=float, default=0.0, help="mm to move the tip toward rank 8 (toward you / down in the camera picture)")
+    ap.add_argument("--piece", default="p", choices=list("pnbrqk"), help="piece type, for the saved grasp when --xy is given")
     ap.add_argument("--xy", help='the piece position in board mm "x,y" (use when the arm is in the picture and would fool YOLO)')
     ap.add_argument("--place-dx", type=float, default=0.0, help="mm added to the PLACE position in board x (+ = toward the h-file) to centre the piece on the target")
     ap.add_argument("--place-dy", type=float, default=0.0, help="mm added to the PLACE position in board y (+ = toward rank 8)")
@@ -38,7 +39,7 @@ def main():
     saved = json.loads((C.DATA / "vision_grasps.json").read_text()) if (C.DATA / "vision_grasps.json").exists() else {}
 
     if a.xy:
-        sym, conf, xy = "P", 1.0, np.array([float(v) for v in a.xy.split(",")])
+        sym, conf, xy = a.piece.upper(), 1.0, np.array([float(v) for v in a.xy.split(",")])
     else:
         got = locate(grab(a.url), chess.parse_square(a.src))
         if got is None:
@@ -92,9 +93,11 @@ def main():
         now = arm.present()  # already low (e.g. left holding at the grasp depth)? first go straight up, JAWS UNCHANGED
         qn = np.array([now[j] for j in J])
         tipn = T.R.T @ (ik.fk(qn)[:3, 3] - T.t) * 1000
-        if tipn[2] < 90.0 and now["gripper"] > 3.0:
-            print(f"arm is low ({tipn[2]:.0f} mm) with open jaws: going straight up first")
-            goto(solve_or_raise(ik, T(tipn[0], tipn[1], 100.0), qn, what="lift out"), float(now["gripper"]), C.DESCEND_S)
+        if tipn[2] < 90.0:
+            print(f"arm is low ({tipn[2]:.0f} mm): opening the jaws in place, then straight up")
+            goto(qn, open_pct, 1.5)  # a piece may still be in the jaws: let go BEFORE lifting
+            arm.dwell()
+            goto(solve_or_raise(ik, T(tipn[0], tipn[1], 100.0), qn, what="lift out"), open_pct, C.DESCEND_S)
         goto(hi_src, open_pct)
         arm.settle()
         goto(above, open_pct, C.DESCEND_S)

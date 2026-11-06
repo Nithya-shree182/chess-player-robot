@@ -22,5 +22,28 @@
       -1.5
     ],
     "verified_place": "2026-11-06: c2->c3 landed 2.4 mm toward a-file / 1.5 mm toward rank 8 of centre; with the correction c3->c2 landed within 1.5 mm (dx -1.5, dy -0.2)"
+  },
+  "r": {
+    "yolo_base_point_bias_mm": [
+      0.5,
+      2.3
+    ],
+    "depth_mm": 7.9,
+    "open_pct": 16.1,
+    "tip_offset_from_piece_centre_mm": [
+      -9.2,
+      0.2
+    ],
+    "hand_held_reading_pct": 8.9,
+    "hand_held_gap_mm": 18.4,
+    "carry_height_mm": 45.0,
+    "place_extra_mm": 2.0,
+    "grip": "hand-taught",
+    "place_correction_mm": [
+      2.4,
+      -1.5
+    ],
+    "taught": "2026-11-06 17:25:27",
+    "notes": "taught by holding the arm on the piece; tip frame = fixed finger face"
   }
 }

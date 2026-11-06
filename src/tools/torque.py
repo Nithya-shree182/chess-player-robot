@@ -2,6 +2,8 @@
 
   python src/tools/torque.py gripper     only the gripper goes limp (open/close it by hand); the arm keeps holding
   python src/tools/torque.py all         EVERY joint goes limp: the arm drops, hold it first!
+  python src/tools/torque.py hand        pan / lift / elbow / wrist-flex / gripper go limp, the WRIST ROLL keeps holding (teach a grasp
+                                         by hand at the roll the arm plays with: the arm drops, hold it first!)
   python src/tools/torque.py on          torque back on, holding wherever each joint is right now (nothing jumps)
 
 Close any other program that uses the arm first (the pipeline, move_piece, ...): only one can have the port.
@@ -16,7 +18,7 @@ from lerobot.motors import Motor, MotorCalibration, MotorNormMode  # noqa: E402
 from lerobot.motors.feetech import FeetechMotorsBus  # noqa: E402
 
 what = (sys.argv[1] if len(sys.argv) > 1 else "").lower()
-if what not in ("gripper", "all", "on"):
+if what not in ("gripper", "all", "on", "hand"):
     raise SystemExit(__doc__)
 
 cal_path = Path.home() / ".cache/huggingface/lerobot/calibration/robots/so_follower" / f"{C.FOLLOWER_ID}.json"
@@ -35,6 +37,14 @@ try:
     elif what == "gripper":
         bus.write("Torque_Enable", "gripper", 0)
         print("gripper torque OFF: you can open and close it by hand. The arm joints are still holding.")
+        print("When you are done:  python src/tools/torque.py on")
+    elif what == "hand":
+        raw = bus.sync_read("Present_Position", normalize=False)
+        bus.sync_write("Goal_Position", raw, normalize=False)  # the roll holds exactly where it is now
+        for j in C.ALL_JOINTS:
+            bus.write("Torque_Enable", j, 1 if j == "wrist_roll" else 0)
+        print("HAND mode: pan / lift / elbow / wrist-flex / gripper are limp (support the arm); the wrist roll is held at "
+              f"{raw['wrist_roll']:.0f} raw.")
         print("When you are done:  python src/tools/torque.py on")
     else:
         for j in C.ALL_JOINTS:
