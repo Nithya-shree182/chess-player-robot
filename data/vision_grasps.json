@@ -6,7 +6,7 @@
       -7.7,
       -0.3
     ],
-    "closed_reading_pct": 4.6,
+    "closed_reading_pct": 6.7,
     "closed_gap_mm": 10,
     "carry_height_mm": 45.0,
     "place_extra_mm": 2.0,
@@ -21,7 +21,8 @@
       2.4,
       -1.5
     ],
-    "verified_place": "2026-11-06: c2->c3 landed 2.4 mm toward a-file / 1.5 mm toward rank 8 of centre; with the correction c3->c2 landed within 1.5 mm (dx -1.5, dy -0.2)"
+    "verified_place": "2026-11-06: c2->c3 landed 2.4 mm toward a-file / 1.5 mm toward rank 8 of centre; with the correction c3->c2 landed within 1.5 mm (dx -1.5, dy -0.2)",
+    "verified_slow_grip": "2026-11-06: grasp_vision c2->c3 end to end with slow_close: contact 6.7 %, held 6.4 % through the lift, landed upright within 0.2 / 1.6 mm of the c3 centre"
   },
   "r": {
     "yolo_base_point_bias_mm": [
