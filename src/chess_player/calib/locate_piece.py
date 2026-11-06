@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--clearance", type=float, default=25.0, help="mm between the jaw tip and the piece's top")
     ap.add_argument("--height", type=float, help="tip height above the board in mm (overrides --clearance)")
     ap.add_argument("--open", type=float, default=0.0, help="gripper opening in %% while hovering (never above the taught maximum)")
+    ap.add_argument("--shift-x", type=float, default=0.0, help="mm to move the tip from the piece centre toward the h-file (negative = toward the a-file)")
+    ap.add_argument("--shift-y", type=float, default=0.0, help="mm toward rank 8 (negative = toward the robot)")
     ap.add_argument("--go", action="store_true", help="move the real arm")
     a = ap.parse_args()
 
@@ -75,6 +77,11 @@ def main():
     if got is None:
         raise SystemExit(f"YOLO sees no piece on {a.square}")
     sym, conf, xy, box, view, base_px = got
+    import json as _json
+
+    _vg = C.DATA / "vision_grasps.json"
+    _bias = np.array(_json.loads(_vg.read_text()).get(sym.lower(), {}).get("yolo_base_point_bias_mm", [0.0, 0.0])) if _vg.exists() else np.zeros(2)
+    xy = np.asarray(xy, float) - _bias + np.array([a.shift_x, a.shift_y])  # YOLO's base point sits a little off the true centre (measured per piece type)
     centre = np.asarray(square_center_mm(sq))
     spec = C.PIECES[sym.lower()]
     z = a.height if a.height is not None else spec["height"] + a.clearance
@@ -118,8 +125,61 @@ def main():
         got_tip = T.R.T @ (ik.fk(np.array([now[j] for j in C.ARM_JOINTS]))[:3, 3] - T.t) * 1000
         print(f"HOLDING. measured tip in board mm: x {got_tip[0]:.1f}, y {got_tip[1]:.1f}, z {got_tip[2]:.1f}   "
               f"(wanted x {xy[0]:.1f}, y {xy[1]:.1f}, z {z:.1f})")
-        print("Compare it with the piece by eye now (and with your own top-down pose on the leader).")
-        input("Enter = go back up and home: ")
+        print("Compare it with the piece by eye now. Commands (one per line): z -5 | x 3 | y -2 (mm, relative, vertical tool) | "
+              "open 12 (jaws %) | close | home")
+        cur = np.array([xy[0], xy[1], z], float)
+        seed = lo
+        while True:
+            cmd = input("hover> ").strip().lower()
+            if cmd in ("", "home"):
+                break
+            parts = cmd.split()
+            try:
+                if parts[0] == "close":
+                    # SLOW close in small steps: stop the moment the pads touch (the jaw stalls behind the command), then a light squeeze.
+                    # A fast swing flicks a narrow piece away before it is held.
+                    import time as _t
+
+                    p = float(arm.present()["gripper"])
+                    contact = None
+                    while p > 1.5:
+                        nxt = max(1.0, p - 0.5)
+                        arm.gripper(nxt, 0.35)
+                        _t.sleep(0.1)
+                        p = float(arm.present()["gripper"])
+                        if p > nxt + 1.0:  # the jaw cannot follow the command: something is in the way
+                            contact = p
+                            break
+                    if contact is not None:
+                        arm.gripper(max(0.0, contact - C.HOLD_SQUEEZE_PCT), 0.8)  # light squeeze
+                        arm.dwell()
+                    print(f"  closed slowly: " + (f"CONTACT at {contact:.1f} %, squeezing to {arm.present()['gripper']:.1f} %" if contact is not None
+                                                  else f"no contact, jaws at {arm.present()['gripper']:.1f} % (empty)"))
+                    continue
+                if parts[0] == "open":
+                    arm.gripper(min(float(parts[1]), C.GRIP_OPEN_MAX_PCT))
+                    arm.dwell()
+                    print(f"  jaws at {arm.present()['gripper']:.1f} %")
+                    continue
+                d = float(parts[1])
+                cur = cur + {"x": [d, 0, 0], "y": [0, d, 0], "z": [0, 0, d]}[parts[0]]
+                if cur[2] < 8.0:
+                    print("  refused: below 8 mm")
+                    cur[2] -= {"x": 0, "y": 0, "z": d}[parts[0]]
+                    continue
+                grip = arm.present()["gripper"]
+                q, e, tl = ik.solve(T(*cur), seed, C.GRASP_MAX_TILT)
+                if e > C.IK_MAX_ERR_MM:
+                    print(f"  unreachable ({e:.1f} mm): not moving")
+                    continue
+                arm.move_to({**dict(zip(C.ARM_JOINTS, q)), "gripper": grip}, 1.2)
+                arm.settle()
+                seed = q
+                now = arm.present()
+                got = T.R.T @ (ik.fk(np.array([now[j] for j in C.ARM_JOINTS]))[:3, 3] - T.t) * 1000
+                print(f"  tip now board mm ({got[0]:.1f}, {got[1]:.1f}, {got[2]:.1f}); target ({cur[0]:.1f}, {cur[1]:.1f}, {cur[2]:.1f}); tilt {tl:.1f} deg")
+            except (ValueError, KeyError, IndexError):
+                print("  ? use: z -5 | x 3 | y -2 | open 12 | close | home")
         arm.move_to({**dict(zip(C.ARM_JOINTS, hi)), "gripper": 0.0}, C.DESCEND_S)
         arm.move_to(look, 2.0)
     finally:
