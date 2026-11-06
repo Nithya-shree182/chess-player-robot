@@ -117,7 +117,7 @@ def main():
     input("Hands clear, a hand near the power switch. Enter = go, Ctrl+C = cancel: ")
     arm = Arm()
     try:
-        arm.move_to({**dict(zip(C.ARM_JOINTS, hi)), "gripper": 0.0})
+        arm.move_to({**dict(zip(C.ARM_JOINTS, hi)), "gripper": opening})
         arm.settle()
         arm.move_to({**dict(zip(C.ARM_JOINTS, lo)), "gripper": opening}, C.DESCEND_S)
         arm.settle()  # the shoulder stops 2-4 deg short at full stretch: measure and add it
@@ -140,14 +140,15 @@ def main():
                     # A fast swing flicks a narrow piece away before it is held.
                     import time as _t
 
+                    cmd_g = float(arm.joints()["gripper"])  # the COMMANDED opening: the contact check compares the measured jaw with it
                     p = float(arm.present()["gripper"])
                     contact = None
-                    while p > 1.5:
-                        nxt = max(1.0, p - 0.5)
-                        arm.gripper(nxt, 0.35)
+                    while cmd_g > 1.5:
+                        cmd_g = max(1.0, cmd_g - 0.5)
+                        arm.gripper(cmd_g, 0.35)
                         _t.sleep(0.1)
                         p = float(arm.present()["gripper"])
-                        if p > nxt + 1.0:  # the jaw cannot follow the command: something is in the way
+                        if p > cmd_g + 1.0:  # the jaw cannot follow the command: the pads touch something
                             contact = p
                             break
                     if contact is not None:
