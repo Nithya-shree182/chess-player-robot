@@ -1,24 +1,26 @@
 {
   "px": [
     [
-      990.6558737277985,
-      129.7080543756485
+      947.0,
+      142.6
     ],
     [
-      403.65587372779845,
-      121.8080543756485
+      388.2,
+      142.7
     ],
     [
-      192.45587372779846,
-      565.9080543756485
+      190.0,
+      572.8
     ],
     [
-      1094.3558737277986,
-      608.5080543756485
+      1029.7,
+      598.0
     ]
   ],
   "url": "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0",
   "auto": {
-    "note": "translated by ECC before the vision-guided hover test"
+    "empty_board": true,
+    "refined_with_corners": 35,
+    "note": "refit after the camera was tilted again"
   }
 }
