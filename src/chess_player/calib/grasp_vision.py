@@ -8,6 +8,7 @@ then Enter closes them; 2) after closing and lifting - check the piece is held, 
 Ctrl+C at a gate: the arm goes back up and home. Gripper opening never exceeds config.GRIP_OPEN_MAX_PCT.
 """
 import argparse
+import json
 
 import chess
 import numpy as np
@@ -23,17 +24,37 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default="c2")
     ap.add_argument("--dst", default="c3")
-    ap.add_argument("--depth", type=float, required=True, help="jaw-tip height above the board at the grasp (mm)")
+    ap.add_argument("--depth", type=float, help="jaw-tip height above the board at the grasp (mm); default: the saved grasp for the piece (data/vision_grasps.json)")
     ap.add_argument("--lift", type=float, default=45.0, help="tip height while carrying (mm)")
+    ap.add_argument("--shift-x", type=float, default=0.0, help="mm to move the tip toward the h-file (left in the camera picture) from the piece centre")
+    ap.add_argument("--shift-y", type=float, default=0.0, help="mm to move the tip toward rank 8 (toward you / down in the camera picture)")
+    ap.add_argument("--xy", help='the piece position in board mm "x,y" (use when the arm is in the picture and would fool YOLO)')
     ap.add_argument("--url", default=str(C.EXT_CAMERA_URL))
+    ap.add_argument("--auto-close", action="store_true", help="close at the depth without the first Enter (you already approved it)")
     ap.add_argument("--dry", action="store_true")
     a = ap.parse_args()
+    saved = json.loads((C.DATA / "vision_grasps.json").read_text()) if (C.DATA / "vision_grasps.json").exists() else {}
 
-    got = locate(grab(a.url), chess.parse_square(a.src))
-    if got is None:
-        raise SystemExit(f"YOLO sees no piece on {a.src}")
-    sym, conf, xy, *_ = got
-    dst = np.asarray(square_center_mm(chess.parse_square(a.dst)))
+    if a.xy:
+        sym, conf, xy = "P", 1.0, np.array([float(v) for v in a.xy.split(",")])
+    else:
+        got = locate(grab(a.url), chess.parse_square(a.src))
+        if got is None:
+            raise SystemExit(f"YOLO sees no piece on {a.src}")
+        sym, conf, xy, *_ = got
+        xy = np.asarray(xy, float) - np.array(saved.get(sym.lower(), {}).get("yolo_base_point_bias_mm", [0.0, 0.0]))  # YOLO's base point sits a little off the true centre
+        a.use_saved = True
+    sg = saved.get(sym.lower())
+    if sg and getattr(a, "use_saved", False) or (sg and a.xy and a.depth is None):
+        if a.depth is None:
+            a.depth = float(sg["depth_mm"])
+        if a.shift_x == 0.0 and a.shift_y == 0.0:
+            a.shift_x, a.shift_y = sg["tip_offset_from_piece_centre_mm"]
+        print(f"using the saved {sym.lower()} grasp: depth {a.depth} mm, tip offset {a.shift_x}, {a.shift_y} mm")
+    if a.depth is None:
+        raise SystemExit("no --depth and no saved grasp for this piece")
+    dst = np.asarray(square_center_mm(chess.parse_square(a.dst))) + np.array([a.shift_x, a.shift_y])  # the piece hangs where the tip held it
+    xy = np.asarray(xy, float) + np.array([a.shift_x, a.shift_y])
     T, ik = BoardToRobot.load(), IK()
     look = {**look_pose(), "gripper": C.GRIPPER_LOOK}
     q0 = np.array([look[j] for j in C.ARM_JOINTS])
@@ -63,7 +84,13 @@ def main():
         arm.move_to({**dict(zip(J, q)), "gripper": grip}, dur)
 
     try:
-        goto(hi_src, 0.0)
+        now = arm.present()  # already low (e.g. left holding at the grasp depth)? first go straight up, JAWS UNCHANGED
+        qn = np.array([now[j] for j in J])
+        tipn = T.R.T @ (ik.fk(qn)[:3, 3] - T.t) * 1000
+        if tipn[2] < 90.0 and now["gripper"] > 3.0:
+            print(f"arm is low ({tipn[2]:.0f} mm) with open jaws: going straight up first")
+            goto(solve_or_raise(ik, T(tipn[0], tipn[1], 100.0), qn, what="lift out"), float(now["gripper"]), C.DESCEND_S)
+        goto(hi_src, open_pct)
         arm.settle()
         goto(above, open_pct, C.DESCEND_S)
         arm.settle()
@@ -73,7 +100,8 @@ def main():
         tip = T.R.T @ (ik.fk(np.array([now[j] for j in J]))[:3, 3] - T.t) * 1000
         print(f"AT GRASP DEPTH, jaws open ({now['gripper']:.1f} %): tip board mm ({tip[0]:.1f}, {tip[1]:.1f}, {tip[2]:.1f}); "
               f"pawn at ({xy[0]:.1f}, {xy[1]:.1f})")
-        input("Check the open jaws straddle the pawn. Enter = CLOSE, Ctrl+C = back up: ")
+        if not a.auto_close:
+            input("Check the open jaws straddle the pawn. Enter = CLOSE, Ctrl+C = back up: ")
         arm.gripper(1.0, 1.8)
         arm.dwell()
         held = arm.present()["gripper"]
