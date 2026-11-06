@@ -1,0 +1,34 @@
+{
+  "time": "2026-11-06 17:15:04",
+  "joints": {
+    "shoulder_pan": -12.0,
+    "shoulder_lift": 3.96,
+    "elbow_flex": 30.99,
+    "wrist_flex": 71.16,
+    "wrist_roll": -97.1,
+    "gripper": 7.38
+  },
+  "tip_board_mm": [
+    66.5,
+    26.2,
+    -1.8
+  ],
+  "tilt_deg": 9.6,
+  "gripper_pct": 7.38,
+  "gap_mm": 15.4,
+  "jaw_middle_board_mm": [
+    74.2,
+    26.5
+  ],
+  "note": "pawn held between the jaws by hand, taught 2026-11-06",
+  "recommended_run": {
+    "depth_mm": 1.0,
+    "tip_offset_from_pawn_centre_mm": [
+      -7.7,
+      -0.3
+    ],
+    "open_pct": 16.1,
+    "expect_closed_pct": 7.4,
+    "why": "the pawn was held by its base: tip at the board surface (-1.8 mm), 15.4 mm gap, jaw middle 7.7 mm from the tip toward the h-file"
+  }
+}
