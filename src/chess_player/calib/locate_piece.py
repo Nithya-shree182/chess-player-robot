@@ -181,7 +181,7 @@ def main():
                 print(f"  tip now board mm ({got[0]:.1f}, {got[1]:.1f}, {got[2]:.1f}); target ({cur[0]:.1f}, {cur[1]:.1f}, {cur[2]:.1f}); tilt {tl:.1f} deg")
             except (ValueError, KeyError, IndexError):
                 print("  ? use: z -5 | x 3 | y -2 | open 12 | close | home")
-        arm.move_to({**dict(zip(C.ARM_JOINTS, hi)), "gripper": 0.0}, C.DESCEND_S)
+        arm.move_to({**dict(zip(C.ARM_JOINTS, hi)), "gripper": opening}, C.DESCEND_S)
         arm.move_to(look, 2.0)
     finally:
         arm.close()
