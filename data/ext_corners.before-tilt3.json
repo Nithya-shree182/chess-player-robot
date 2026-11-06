@@ -1,0 +1,26 @@
+{
+  "px": [
+    [
+      947.0,
+      142.6
+    ],
+    [
+      388.2,
+      142.7
+    ],
+    [
+      190.0,
+      572.8
+    ],
+    [
+      1029.7,
+      598.0
+    ]
+  ],
+  "url": "/dev/v4l/by-id/usb-Ausha_Webcam_Ausha_Webcam-video-index0",
+  "auto": {
+    "empty_board": true,
+    "refined_with_corners": 35,
+    "note": "refit after the camera was tilted again"
+  }
+}
