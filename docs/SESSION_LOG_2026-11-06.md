@@ -5,7 +5,7 @@ Times are not logged; the order below is the order things happened.
 
 ## Where things stand (one paragraph)
 The fixed camera (Ausha webcam, 1280x720) now looks at the board from the human's side, raised and tilted down. The board grid
-for that view is fitted and saved (`data/ext_corners.json`). 72 labelled images of 11 positions were captured with the new pieces and
+for that view is fitted and saved (`data/ext_corners.json`). 80 labelled images of 12 positions were captured with the new pieces and
 a YOLO model was fine-tuned on them: on held-out positions mAP50 = 0.965, and it read 4 fresh positions in a row with every piece
 right. **Not done:** picking pieces up (see STATUS.md), re-checking `board_to_robot.json` after this session's moves, and testing the
 full pipeline with the new model.
@@ -27,9 +27,9 @@ full pipeline with the new model.
   scratch script (not in the repo): a few lines of OpenCV + matplotlib/Tk. The venv's OpenCV is headless, so `cv2.imshow` does not work.
 
 ## Dataset (`data/dataset/`)
-- 11 positions, 72 images (images/, labels/ YOLO txt, previews/ with boxes drawn, meta/ with the FEN and brightness):
+- 12 positions, 80 images (images/, labels/ YOLO txt, previews/ with boxes drawn, meta/ with the FEN and brightness):
   `pos01` (start, 13 images), `pos02` (game position), `pos10` (start again, new view), `pos11` (e4 e5), `pos13` (to move 3),
-  `pos14`, `pos15`, `pos16` (opening moves), `pos17` (both castled), `pos18` (a capture), `pos19` (the trade), `pos20` (queens behind pawns).
+  `pos14`, `pos15`, `pos16` (opening moves), `pos17` (both castled), `pos18` (a capture), `pos19` (the trade), `pos20` (queens behind pawns), `pos21` (pawn behind a queen on both sides).
 - Every shot is labelled from a known FEN: each box is the piece's 3-D cylinder projected through the camera pose that
   `BoardView` solves from the grid (focal length estimated from the board's homography).
 - The old-rig dataset (33 mm board, other pieces) was moved to `data/dataset_old_rig/` (not committed; it is in git history).
@@ -37,6 +37,9 @@ full pipeline with the new model.
   (non-standard), while the labels assumed the standard layout. All K/Q/k/q class ids were swapped in the 52 labels existing at that time
   (`data/dataset_labels_before_kq_swap/` and `data/dataset_meta_before_kq_swap/` hold the originals). Later captures use the standard
   arrangement (queen on d1/d8). Check with the preview images if anything looks off.
+  **Exception: `pos02`**: white was set king-on-d1 but black was already standard, so the blanket swap broke its black labels. Found because the
+  validation confusion matrix showed black king/queen mixed 44 %; fixed by restoring its original labels and swapping only the white K/Q
+  (`meta.kq_swapped = "white only"`). Lesson: always look at the validation confusion matrix, one mislabelled position shows up there.
 - Two positions were relabelled after a placement error: `pos13` (bishop was one square off, recaptured) and `pos20` (a pawn was on d5, not d6).
 - Held-out split is by position name (`meta.position`), so one position is never in both train and val.
 
@@ -53,7 +56,8 @@ full pipeline with the new model.
 ## Model
 - Fine-tuned from the public pretrained chess model: `python -m chess_player.vision.train_yolo --epochs 60 --batch 8`. About 100 s on the RTX 4090 Laptop
   (16 GB). Output: `data/yolo/best.pt` (gitignored; the detector prefers it over the pretrained model).
-- Final run: trained on 10 positions, validated on `pos02` and `pos18` (13 images, 403 pieces): precision 0.90, recall 0.99, mAP50 0.965, mAP50-95 0.88.
+- Final run (12 positions, 80 images): trained on 10 positions, validated on `pos02`, `pos18`, `pos19` (18 images, 553 pieces): precision 0.996, recall 0.997,
+  mAP50 0.995, mAP50-95 0.937. (An earlier run with the wrong `pos02` black labels scored 0.923 / 0.924 / 0.961 / 0.912.)
 - Fresh-position checks before training on them (score = squares read right out of 64): 61/64 (first model), then 64/64 on the standard
   start-up arrangement, 64/64 castled, 64/64 after a capture, 64/64 after the trade. The pawn-behind-queen test was partly a miss (a hidden queen).
 - `config.KQ_TRUST_CONF` lowered 0.85 -> 0.5: the box-height guess for king vs queen used to overrule a correct "K 0.80" from the fine-tuned model.

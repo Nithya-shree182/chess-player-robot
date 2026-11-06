@@ -6,8 +6,8 @@ Last updated: **2026-11-06** (vision session on Ubuntu). Earlier sessions: [docs
 Full map of the session: [docs/SESSION_LOG_2026-11-06.md](docs/SESSION_LOG_2026-11-06.md). Short version:
 - The fixed camera is the Ausha webcam looking from the human's side, raised and tilted down; the grid for it is in `data/ext_corners.json` (locked copy
   `data/ext_corners.locked-oblique.json`). Camera brightness 95 (default 128 blows out the white pieces). Refit the grid on an EMPTY board whenever the camera moves.
-- **YOLO is trained on our pieces**: 72 labelled images of 11 positions in `data/dataset/` (pushed to GitHub so it can be retrained), model `data/yolo/best.pt`
-  (not in git: retrain with `python -m chess_player.vision.train_yolo --epochs 60`, ~100 s). Held-out mAP50 0.965; fresh positions read 64/64 several times.
+- **YOLO is trained on our pieces**: 80 labelled images of 12 positions in `data/dataset/` (pushed to GitHub so it can be retrained), model `data/yolo/best.pt`
+  (not in git: retrain with `python -m chess_player.vision.train_yolo --epochs 60`, ~100 s). Held-out mAP50 0.995; fresh positions read 64/64 several times.
   Weak spot: a piece hidden right behind another (queen behind a pawn).
 - New tools: `vision/capture_safe.py` (shots with a drift check), `vision/capture_chain.py` (build positions by telling it the moves you made).
 - Pieces must be set up in the STANDARD arrangement (queen on d1/d8). The dataset was first captured with king and queen swapped; labels were fixed.
