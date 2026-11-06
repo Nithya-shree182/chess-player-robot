@@ -1,0 +1,33 @@
+{
+  "time": "2026-11-06 17:50:29",
+  "joints": {
+    "shoulder_pan": -10.95,
+    "shoulder_lift": 26.64,
+    "elbow_flex": -0.04,
+    "wrist_flex": 93.23,
+    "wrist_roll": -97.54,
+    "gripper": 10.35
+  },
+  "raw": [
+    2007,
+    2294,
+    1917,
+    3219,
+    938,
+    2161
+  ],
+  "tip_board_mm": [
+    67.6,
+    35.8,
+    9.4
+  ],
+  "tilt_deg": 23.3,
+  "gap_mm": 21.3,
+  "jaw_dir": [
+    1.0,
+    0.02
+  ],
+  "rook_board_mm": [],
+  "photo": "data/pose_checks/rook_board_175025.jpg",
+  "note": "rook STANDING on the board, pads closed on it where it stands, roll locked"
+}
