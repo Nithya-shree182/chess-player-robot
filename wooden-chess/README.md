@@ -1,5 +1,7 @@
 # wooden-chess: SO-101 chess robot, 12-inch board with wooden pieces
 
+**Current status and the to-do list: [STATUS.md](STATUS.md). This file holds the long session notes.**
+
 Fresh start on the new rig. The code is a copy of the parent repo's `src/`, `scripts/`, `setup/` (branch `nithya`, 2026-11-07);
 `data/` holds ONLY the arm-specific files (arm calibration, gripper tables, home pose). Everything that depends on the board or the
 camera (grid, board_to_robot, dataset, YOLO, grasp numbers) starts empty and is re-made here. `.venv` and `bin/` are symlinks to the parent's.

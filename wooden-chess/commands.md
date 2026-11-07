@@ -1,3 +1,6 @@
+> **NOTE (wooden-chess):** this file is copied from the OLD rig and is partly stale (paths, the old PickPlace, the old calibration steps).
+> The current commands are in [STATUS.md](STATUS.md) and [README.md](README.md).
+
 # Commands
 
 Every terminal first (activates the `lerobot` env and the project):
