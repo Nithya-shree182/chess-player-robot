@@ -1,0 +1,19 @@
+# symlinks to the parent's environment and downloads
+.venv
+bin
+data/models
+__pycache__/
+*.py[cod]
+*.log
+# model weights and training scratch (retrain with python -m chess_player.vision.train_yolo)
+*.pt
+*.onnx
+data/yolo/
+data/yolo_runs/
+data/yolo_work/
+data/dataset/previews/
+# debug pictures and live state
+data/hover_check/
+data/*.tmp
+data/board_state.json
+data/ext_corners_now.jpg
