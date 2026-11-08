@@ -245,9 +245,11 @@ class Session:
             "dry_run": self.dry_run,
         }
 
-    def close(self):
+    def close(self, go_home=True):
+        """go_home=False after Ctrl+C: leave the arm frozen where it is (a joint-space swing home could drop a carried piece)."""
         try:
-            self.pp.go_look()
+            if go_home:
+                self.pp.go_look()
         finally:
             self.engine.close()
             if self.cam:

@@ -153,25 +153,74 @@ def why_illegal(board: chess.Board) -> list[str]:
     return out
 
 
-def looks_like_start(board: chess.Board, min_pieces: int = 30, seen: dict | None = None, trust_conf: float = 0.8) -> bool:
-    """The cameras show the starting setup: every piece on its side's first two ranks, at most a couple hidden
-    (e.g. the king and queen under the gripper), nothing anywhere else. Then the position IS the standard start,
-    whatever piece types the cameras guess (king e1, queen d1, ..., White to move).
+def prune_impossible(seen: dict) -> tuple[dict, list[str]]:
+    """Drop camera readings that cannot be real: a side has at most 16 pieces and 8 pawns, so the lowest-confidence extras are phantoms
+    (a tall piece's head read as a pawn one square away, a duplicate box). `seen` = {square: (symbol, conf)}.
+    Returns (pruned copy, dropped square names)."""
+    seen = dict(seen)
+    dropped = []
+    for white in (True, False):
+        def mine(only_pawns=False):
+            return sorted((conf, sq) for sq, (sym, conf) in seen.items()
+                          if sym.isupper() == white and (not only_pawns or sym.lower() == "p"))
 
-    Exception: if `seen` ({square: (symbol, confidence)}) holds a confident reading (>= trust_conf) that contradicts the
-    standard piece on its start square (e.g. a queen on d7 where the start has a pawn), the pieces are NOT in the
-    standard setup and the shortcut must not hide that."""
+        while len(mine(True)) > 8:
+            _, sq = mine(True)[0]
+            dropped.append(chess.square_name(sq))
+            del seen[sq]
+        while len(mine()) > 16:
+            _, sq = mine()[0]
+            dropped.append(chess.square_name(sq))
+            del seen[sq]
+    return seen, dropped
+
+
+def start_mismatch(seen: dict, trust_conf: float = 0.8) -> list[str]:
+    """Why the raw camera reading `seen` ({square: (symbol, conf)}) is NOT the standard starting setup (empty list = it is).
+
+    Chess logic, independent of the unreliable far side of the picture (Black's pieces stand at the camera's near edge: their squares and
+    types get misread, e.g. the e7 pawn seen on e6, the back rank cut off): White moves first, so if White's half still holds the
+    standard setup and the middle ranks 3-5 are empty, nothing has been played yet, whatever Black's side looks like. Required:
+      - White's ranks 1-2: all 16 squares hold a white piece (one may be missed), and no confident white piece has another type;
+      - ranks 3-5: no confident piece (a real move leaves one there);
+      - Black's ranks 7-8: at least 8 black pieces seen (so the board is not simply empty on that side)."""
     start = chess.Board()
+    why = []
+    white_missing = [chess.square_name(sq) for sq, p in start.piece_map().items()
+                     if p.color == chess.WHITE and not (sq in seen and seen[sq][0].isupper())]
+    if len(white_missing) > 1:
+        why.append("white start squares not occupied: " + " ".join(white_missing))
+    middle = [chess.square_name(sq) for sq, (sym, conf) in seen.items() if chess.square_rank(sq) in (2, 3, 4) and conf >= 0.5]
+    if middle:
+        why.append("pieces in the middle ranks: " + " ".join(middle))
+    for sq, (sym, conf) in seen.items():
+        sp = start.piece_at(sq)
+        if sp is not None and sp.color == chess.WHITE and conf >= trust_conf and sym != sp.symbol():
+            why.append(f"{chess.square_name(sq)} is a confident {sym} (start has {sp.symbol()})")
+    black_far = sum(1 for sq, (sym, conf) in seen.items() if sym.islower() and chess.square_rank(sq) in (6, 7))
+    if black_far < 8:
+        why.append(f"only {black_far} black pieces seen on ranks 7-8")
+    return why
+
+
+def looks_like_start(board: chess.Board, min_pieces: int = 30, seen: dict | None = None, trust_conf: float = 0.8) -> bool:
+    """The cameras show the starting setup, so the position IS the standard start (king e1, queen d1, ..., White to move)
+    whatever piece types the cameras guess.
+
+    With `seen` ({square: (symbol, confidence)}, the raw camera reading) the decision is by WHERE the pieces stand and which colour
+    they are, which the camera gets right even on a grainy picture: nearly all 32 start squares hold a piece of the right colour
+    (up to 3 may be missed, only 1 of them outside Black's back rank, which is the part cut off by the frame), and no confident piece
+    stands anywhere else (a faint reading, like a phantom pawn, is ignored). Piece TYPES only veto it for White's pieces and
+    Black's pawns (read reliably): a confident queen on d7 means this is not the standard setup. Black's back-rank types are
+    often misread with high confidence, so they never veto.
+    Without `seen`, `board` itself is judged: every piece on its side's first two ranks, at least `min_pieces` of them."""
+    start = chess.Board()
+    if seen:
+        return not start_mismatch(seen, trust_conf)
     pm = board.piece_map()
     if len(pm) < min_pieces:
         return False
-    if not all(start.piece_at(sq) is not None and start.piece_at(sq).color == p.color for sq, p in pm.items()):
-        return False
-    for sq, (sym, conf) in (seen or {}).items():
-        sp = start.piece_at(sq)
-        if sp is not None and conf >= trust_conf and sym != sp.symbol():
-            return False
-    return True
+    return all(start.piece_at(sq) is not None and start.piece_at(sq).color == p.color for sq, p in pm.items())
 
 
 def merge_seen(game: chess.Board, seen: dict, type_conf=None, votes=None) -> tuple[chess.Board, list[str]]:

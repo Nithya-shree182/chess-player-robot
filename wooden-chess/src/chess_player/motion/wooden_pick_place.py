@@ -26,24 +26,46 @@ from chess_player.motion.slow_grip import slow_close, slow_release
 
 FILE = C.DATA / "wooden_grasps.json"
 PAWN = dict(open_pct=16.1, shift_x=-10.6, shift_y=2.7, grip_tip=15.0, lift=30.0, place_dx=3.0, place_dy=0.0, place_extra=2.0,
-            contact_pct=8.3)
+            contact_pct=8.3, squeeze=C.HOLD_SQUEEZE_PCT, vert_speed=25.0, release_pct=4.0)
+# STARTING POINTS for the pieces not taught yet (NOT verified): tall pieces are gripped higher on the body (a low grip on a 55-60 mm
+# piece lets the top swing and the piece tips over), squeezed a little harder and lifted/lowered more slowly. Teach each type once with
+# calib/pick_place.py --save: the saved numbers (marked "taught") replace these.
+START = {
+    "p": {},
+    "r": dict(grip_tip=15.0),
+    "n": dict(grip_tip=17.0, squeeze=1.8, vert_speed=18.0),
+    "b": dict(grip_tip=20.0, squeeze=1.8, vert_speed=18.0),
+    "q": dict(grip_tip=23.0, squeeze=2.2, vert_speed=14.0),
+    "k": dict(grip_tip=25.0, squeeze=2.2, vert_speed=14.0),
+}
 PATH_STEP_MM = 6.0
-CARRY_MM_PER_S = 25.0
+CARRY_MM_PER_S = 25.0  # sideways carry; lifting and lowering use the piece's vert_speed
 SLIP_PCT = 2.5  # the jaws closing this far beyond the contact reading while carrying = the piece slipped out
 NEIGHBOUR_BAND = (14.0, 44.0)  # h-file side: a piece this far along +x of the source (and within +-16 mm in y) is in the moving finger's way
 CLEAR_ABOVE_MM = 8.0  # the carried piece's bottom stays this far above the tallest piece near its path
+# ALWAYS lift straight up until the carried piece's bottom is this high above the board (the king is 60 mm + 10 mm) before any sideways
+# move, whenever other pieces stand on the board. Lower only where the arm cannot reach it (far ranks), and then only if no tall piece
+# is near the path.
+SAFE_CARRY_BOTTOM_MM = 70.0
 
 
 def recipe(piece):
-    """Numbers for one piece type: the pawn's, a guessed fixed-finger distance for the others, then whatever was saved."""
+    """Numbers for one piece type: the pawn's, starting guesses for the others (START), then whatever was taught and saved.
+    d["taught"] is True only for numbers that came from data/wooden_grasps.json."""
     piece = piece.lower()
     d = dict(PAWN)
     if piece != "p":
         d["shift_x"] = -C.PIECES[piece]["diameter"] / 2.0
+    d.update(START.get(piece, {}))
+    d["taught"] = False
     try:
-        d.update(json.loads(FILE.read_text()).get(piece, {}))
+        saved = json.loads(FILE.read_text()).get(piece)
     except (OSError, ValueError):
-        pass
+        saved = None
+    if saved:
+        saved = dict(saved)
+        d["taught"] = bool(saved.pop("complete", True))  # the staged teaching tool saves partial numbers with complete=false
+        d.update(saved)
     return d
 
 
@@ -56,6 +78,8 @@ def _seg_dist(c, a, b):
 
 
 class WoodenPickPlace(PickPlace):
+    override = None  # numbers forced over the recipe (the teaching tool passes its command-line flags here)
+
     # ---------------------------------------------------------------- planning (a dry run of the same code on a simulated arm)
     def plan_transfer(self, t: Transfer, obstacles=None):
         info = self._run(FakeArm(), t, obstacles, real=False)
@@ -63,11 +87,15 @@ class WoodenPickPlace(PickPlace):
 
     # ---------------------------------------------------------------- execution
     def execute(self, t: Transfer, retries=2, obstacles=None):
-        return self._run(self.arm, t, obstacles, real=True, retries=retries)
+        return self._run(self.arm, t, obstacles, real=not isinstance(self.arm, FakeArm), retries=retries)  # a simulated arm cannot feel contact
 
     def _run(self, arm, t: Transfer, obstacles, real, retries=2):
         sym = t.piece.lower()
         r = recipe(sym)
+        if self.override:
+            r.update(self.override)
+        if not r["taught"] and not self.override:
+            self.log(f"  WARNING: the grasp for '{sym}' has not been taught (data/wooden_grasps.json): using starting numbers")
         H = C.PIECES[sym]["height"]
         obstacles = obstacles or {}
         src, dst = np.array(t.src, float), np.array(t.dst, float)
@@ -97,7 +125,7 @@ class WoodenPickPlace(PickPlace):
         def pose(q, grip):
             return {**dict(zip(C.ARM_JOINTS, q)), "gripper": float(grip)}
 
-        def line(xy0, z0, xy1, z1, what, grip=None):
+        def line(xy0, z0, xy1, z1, what, grip=None, speed=None):
             """Straight Cartesian line (IK every PATH_STEP_MM) from the arm's present place."""
             g = float(arm.joints()["gripper"]) if grip is None else grip
             xy0, xy1 = np.asarray(xy0, float), np.asarray(xy1, float)
@@ -107,7 +135,7 @@ class WoodenPickPlace(PickPlace):
             for i in range(1, n + 1):
                 f = i / n
                 wps.append(pose(ik_at(xy0 + (xy1 - xy0) * f, z0 + (z1 - z0) * f, what), g))
-            dur = max(0.8, L / CARRY_MM_PER_S)
+            dur = max(0.8, L / (speed or CARRY_MM_PER_S))
             stat["secs"] += dur + 0.4
             why = arm.move_path(wps, dur, check=holding_check if holding else None)
             if why:
@@ -142,27 +170,28 @@ class WoodenPickPlace(PickPlace):
         z_hi = safe_z(pick_xy, z_above)
         gap_est = float(np.interp(r["contact_pct"], C._GAP_PCT, C._GAP_MM))
 
-        # travel height: lift_mm above the grip, or higher to clear the tallest piece within reach of the carry path
+        # travel height. The piece goes straight up to z_c BEFORE any sideways move. z_c = the grip height + lift, or, with other pieces on
+        # the board, the global safe height (the carried piece's bottom clears the tallest piece, the king), or higher still to clear
+        # the tallest piece near this carry path.
         place_est = dst + np.array([-gap_est / 2.0 + r["place_dx"], r["shift_y"] + r["place_dy"]])
         tall = 0.0
         for xy, s in obstacles.items():
             if _seg_dist(xy, src, dst) < 31.0:
                 tall = max(tall, C.PIECES[s.lower()]["height"])
-        z_c_want = max(z_grip + r["lift"], (tall + CLEAR_ABOVE_MM + r["grip_tip"] + zs) if tall else 0.0)
+        z_path = (tall + CLEAR_ABOVE_MM + r["grip_tip"] + zs) if tall else 0.0
+        z_global = (SAFE_CARRY_BOTTOM_MM + r["grip_tip"] + zs) if obstacles else 0.0
+        z_c_want = max(z_grip + r["lift"], z_path, z_global)
         z_c = None
-        for z in np.arange(z_c_want, z_grip + r["lift"] - 1.0, -5.0):
+        for z in np.arange(z_c_want, z_grip + 4.0, -5.0):
             if all(reachable(p, float(z)) for p in (pick_xy, place_est, (pick_xy + place_est) / 2)):
                 z_c = float(z)
                 break
         if z_c is None:
-            for z in np.arange(z_grip + r["lift"] - 5.0, z_grip + 4.0, -5.0):  # lower than wanted: only if nothing tall is near
-                if not tall and all(reachable(p, float(z)) for p in (pick_xy, place_est, (pick_xy + place_est) / 2)):
-                    z_c = float(z)
-                    break
-        if z_c is None:
-            raise Blocked(f"{t.label}: cannot carry it high enough ({z_c_want:.0f} mm) to clear the pieces near the path")
-        if tall and z_c < z_c_want - 0.1:
-            raise Blocked(f"{t.label}: the carry path needs {z_c_want:.0f} mm to clear a {tall:.0f} mm piece, the arm reaches {z_c:.0f} mm")
+            raise Blocked(f"{t.label}: the arm cannot carry it anywhere near {z_c_want:.0f} mm between these squares")
+        if z_c < z_path - 0.1:
+            raise Blocked(f"{t.label}: the carry path needs {z_path:.0f} mm to clear a {tall:.0f} mm piece, the arm reaches {z_c:.0f} mm")
+        if z_c < z_c_want - 0.1:
+            log(f"  note: carry height {z_c:.0f} mm (the safe {z_c_want:.0f} mm is out of reach here; no tall piece near the path)")
 
         log(f"  transfer: {t.label}: pick tip ({pick_xy[0]:.0f}, {pick_xy[1]:.0f}), grip height {z_grip:.0f} mm, jaws {open_pick:.1f} %"
             + (" (crowded on the h-file side)" if open_pick < open_pct else "") + f", carry at {z_c:.0f} mm")
@@ -175,7 +204,7 @@ class WoodenPickPlace(PickPlace):
             line(pick_xy, z_hi, pick_xy, z_above, "pick, above the piece", open_pick)
             line(pick_xy, z_above, pick_xy, z_grip, "pick, grip height", open_pick)
             if real:
-                contact, fin = slow_close(arm)
+                contact, fin = slow_close(arm, squeeze=r["squeeze"])
             else:
                 contact, fin = r["contact_pct"], r["contact_pct"] - 0.2
                 stat["secs"] += 6.0
@@ -183,7 +212,7 @@ class WoodenPickPlace(PickPlace):
                 break
             log(f"  attempt {attempt + 1}: the jaws closed on nothing ({fin:.1f} %)")
             slow_release(arm, open_pick)
-            line(pick_xy, z_grip, pick_xy, z_hi, "retreat", open_pick)
+            line(pick_xy, z_grip, pick_xy, z_hi, "retreat", open_pick, speed=r["vert_speed"])
         else:
             raise GraspFailed(f"{t.label}: nothing in the hand after {retries + 1} tries")
         contact_pct[0] = float(contact)
@@ -196,9 +225,9 @@ class WoodenPickPlace(PickPlace):
         holding = True
         try:
             for step in (
-                lambda: line(pick_xy, z_grip, pick_xy, z_c, "lift"),
+                lambda: line(pick_xy, z_grip, pick_xy, z_c, "lift", speed=r["vert_speed"]),
                 lambda: line(pick_xy, z_c, place_xy, z_c, "carry"),
-                lambda: line(place_xy, z_c, place_xy, z_place, "lower"),
+                lambda: line(place_xy, z_c, place_xy, z_place, "lower", speed=r["vert_speed"]),
             ):
                 why = step()
                 if why:
@@ -215,13 +244,13 @@ class WoodenPickPlace(PickPlace):
         holding = False
 
         # ---- release
-        crowded_dst = crowded_h_side(dst)
-        let_go = min(open_pct, contact + 4.0) if crowded_dst else open_pct
+        # let go by opening only release_pct past the contact reading (about 8 mm of gap at 4 %), never above the taught maximum
+        let_go = min(open_pct, contact + r["release_pct"], C.GRIP_OPEN_MAX_PCT)
         if real:
             slow_release(arm, let_go)
         else:
             stat["secs"] += 5.0
-        line(place_xy, z_place, place_xy, z_c, "lift away", let_go)
+        line(place_xy, z_place, place_xy, z_c, "lift away", let_go, speed=r["vert_speed"])
         return dict(step=t.label, z_travel_mm=round(z_c), max_grasp_tilt_deg=round(stat["tilt"]), est_seconds=round(stat["secs"]),
                     jaw_shift_mm=round(-r["shift_x"], 1), route="recipe", grasp="recipe", open_pct=round(open_pick, 1),
                     tall_near_path_mm=tall)

@@ -1,0 +1,162 @@
+{
+  "stage1_approach": {
+    "joints": {
+      "shoulder_pan": -4.18,
+      "shoulder_lift": -0.7,
+      "elbow_flex": 17.19,
+      "wrist_flex": 80.22,
+      "wrist_roll": -96.92,
+      "gripper": 15.89
+    },
+    "tip_board_mm": [
+      122.8,
+      47.1,
+      26.6
+    ],
+    "photos": [
+      "/home/india-ic-physicalai/Desktop/chess/wooden-chess/data/teach/k/stage1_approach.jpg"
+    ],
+    "numbers": {
+      "open_pct": 16.1,
+      "shift_x": -13.0,
+      "shift_y": 2.7,
+      "grip_tip": 25.0,
+      "lift": 30.0,
+      "place_dx": 3.0,
+      "place_dy": 0.0,
+      "place_extra": 2.0,
+      "contact_pct": 8.3,
+      "squeeze": 2.2,
+      "vert_speed": 14.0,
+      "release_pct": 4.0
+    }
+  },
+  "stage2_grip": {
+    "joints": {
+      "shoulder_pan": -3.3,
+      "shoulder_lift": -3.96,
+      "elbow_flex": 21.05,
+      "wrist_flex": 79.08,
+      "wrist_roll": -96.92,
+      "gripper": 9.89
+    },
+    "tip_board_mm": [
+      125.0,
+      41.9,
+      26.3
+    ],
+    "photos": [
+      "/home/india-ic-physicalai/Desktop/chess/wooden-chess/data/teach/k/stage2_grip.jpg"
+    ],
+    "numbers": {
+      "open_pct": 16.1,
+      "shift_x": -12.0,
+      "shift_y": -2.299999999999997,
+      "grip_tip": 25.0,
+      "lift": 30.0,
+      "place_dx": 3.0,
+      "place_dy": 0.0,
+      "place_extra": 2.0,
+      "contact_pct": 11.008569545154911,
+      "squeeze": 2.2,
+      "vert_speed": 14.0,
+      "release_pct": 4.0
+    }
+  },
+  "stage3_lifted": {
+    "joints": {
+      "shoulder_pan": -4.44,
+      "shoulder_lift": -28.31,
+      "elbow_flex": 17.01,
+      "wrist_flex": 85.05,
+      "wrist_roll": -97.1,
+      "gripper": 9.89
+    },
+    "tip_board_mm": [
+      122.6,
+      42.2,
+      97.1
+    ],
+    "photos": [
+      "/home/india-ic-physicalai/Desktop/chess/wooden-chess/data/teach/k/stage3_lifted.jpg"
+    ],
+    "numbers": {
+      "open_pct": 16.1,
+      "shift_x": -12.0,
+      "shift_y": -2.299999999999997,
+      "grip_tip": 25.0,
+      "lift": 30.0,
+      "place_dx": 3.0,
+      "place_dy": 0.0,
+      "place_extra": 2.0,
+      "contact_pct": 11.008569545154911,
+      "squeeze": 2.2,
+      "vert_speed": 14.0,
+      "release_pct": 4.0
+    }
+  },
+  "stage4_lowered": {
+    "joints": {
+      "shoulder_pan": -4.7,
+      "shoulder_lift": 24.09,
+      "elbow_flex": -18.07,
+      "wrist_flex": 85.05,
+      "wrist_roll": -96.92,
+      "gripper": 9.89
+    },
+    "tip_board_mm": [
+      125.9,
+      106.4,
+      29.2
+    ],
+    "photos": [
+      "/home/india-ic-physicalai/Desktop/chess/wooden-chess/data/teach/k/stage4_lowered.jpg"
+    ],
+    "numbers": {
+      "open_pct": 16.1,
+      "shift_x": -12.0,
+      "shift_y": -2.299999999999997,
+      "grip_tip": 25.0,
+      "lift": 30.0,
+      "place_dx": 3.0,
+      "place_dy": 0.0,
+      "place_extra": 2.0,
+      "contact_pct": 11.008569545154911,
+      "squeeze": 2.2,
+      "vert_speed": 14.0,
+      "release_pct": 4.0
+    }
+  },
+  "stage4_placed": {
+    "joints": {
+      "shoulder_pan": -4.97,
+      "shoulder_lift": 2.55,
+      "elbow_flex": -15.43,
+      "wrist_flex": 85.05,
+      "wrist_roll": -97.1,
+      "gripper": 14.7
+    },
+    "tip_board_mm": [
+      125.9,
+      106.3,
+      100.8
+    ],
+    "photos": [
+      "/home/india-ic-physicalai/Desktop/chess/wooden-chess/data/teach/k/stage4_placed.jpg"
+    ],
+    "numbers": {
+      "open_pct": 16.1,
+      "shift_x": -12.0,
+      "shift_y": -2.299999999999997,
+      "grip_tip": 25.0,
+      "lift": 30.0,
+      "place_dx": 3.0,
+      "place_dy": 0.0,
+      "place_extra": 2.0,
+      "contact_pct": 11.008569545154911,
+      "squeeze": 2.2,
+      "vert_speed": 14.0,
+      "release_pct": 4.0
+    }
+  }
+}

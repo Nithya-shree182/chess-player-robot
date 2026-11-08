@@ -121,6 +121,7 @@ def main():
         else:
             a.robot_color = C.ROBOT_COLOR
 
+    stopped = False
     s = Session(dry_run=a.dry_run, robot_color=a.robot_color, skill=a.skill, use_camera=not (a.keyboard or a.dry_run))
     print(f"vision: {s.vision if s.has_vision else 'off'}   robot plays {a.robot_color}   dry run: {a.dry_run}")
     try:
@@ -138,9 +139,14 @@ def main():
             print(s.board, f"\n  eval {s.engine.evaluate(s.board)}")
         print("Game over:", s.board.result(), s.board.outcome().termination.name)
     except KeyboardInterrupt:
-        print("\nstopped")
+        stopped = True
+        print("\nstopped: the arm is frozen where it is. If it holds a piece, take it by hand; use the power switch if needed.")
+        try:
+            s.arm.freeze()
+        except Exception:
+            pass
     finally:
-        s.close()
+        s.close(go_home=not stopped)
 
 
 if __name__ == "__main__":

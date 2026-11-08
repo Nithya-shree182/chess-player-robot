@@ -341,6 +341,7 @@ class Conductor:
         game = self.s.board
         # chess sense: types persist unless the cameras agree on a change, moved pieces keep theirs, one king
         seen, votes = self._fused(dets)
+        seen, _ = GS.prune_impossible(seen)
         b, unsure = GS.merge_seen(game, seen, votes=votes)
         if GS.looks_like_start(b, seen=seen):  # the starting setup: exact standard position, unless a confident reading says otherwise
             b, unsure = chess.Board(), []
@@ -355,6 +356,12 @@ class Conductor:
         if time.time() - pend[1] < C.LIVE_SYNC_HOLD_S:
             return
         if self.live_sync and diff and not self.help and self.mode != "playing":
+            why = GS.why_illegal(b)
+            if why:  # a misreading (a cut-off back rank, a phantom piece): the game position stays as it is
+                if getattr(self, "_sync_refused", None) != b.board_fen():
+                    self._sync_refused = b.board_fen()
+                    self.log(f"live sync: ignored a camera reading that is not a legal position ({'; '.join(why)[:90]})")
+                return
             self.log(f"live sync: board updated from the cameras ({len(diff)} squares changed: {' '.join(diff[:8])})")
             with w._lock:
                 self._read_frame = w.history[-1][2] if w.history else None
@@ -377,13 +384,24 @@ class Conductor:
             self.say("need_help", "The camera view keeps changing (hand in the way?). Try ⟳ Recheck again.")
             return
         seen, votes = self._fused(dets)
+        seen, dropped = GS.prune_impossible(seen)
+        if dropped:
+            self.log(f"recheck: ignored impossible readings (phantoms) on {' '.join(dropped)}")
         b, unsure = GS.merge_seen(self.s.board, seen, type_conf=C.RECHECK_TYPE_CONF, votes=votes)
         if GS.looks_like_start(b, seen=seen):
             b, unsure = chess.Board(), []
             self.log("recheck: the starting position")
+        else:
+            self.log("recheck: not the starting setup: " + "; ".join(GS.start_mismatch(seen))[:200])
+        why = GS.why_illegal(b)
+        if why:  # a misreading (Black's back rank, a phantom pawn): keep the game position the user can still play from
+            self.log(f"recheck: the camera reading is not a legal position ({'; '.join(why)[:90]}); game position kept")
+            self.say("need_help", "The camera misread some pieces, so I kept the game position as it is. "
+                                  "Press ▶ Play to continue, or fix it with Edit position.")
+            return
         self.job_set_position(b.fen(), quiet=True)
         self.log(f"recheck: {len(b.piece_map())} pieces" + (f", unsure: {' '.join(unsure)}" if unsure else ""))
-        if not GS.why_illegal(b):
+        if not why:
             self.say("idle", "Rechecked: board synced. Press Play." + (f" Unsure squares: {' '.join(unsure)}." if unsure else ""))
 
     def emergency_stop(self):
@@ -668,7 +686,7 @@ class Conductor:
         If it came from a camera reading (possibly corrected by hand), that frame + position become YOLO training
         data, so our own model learns this board."""
         b = chess.Board(fen)
-        if from_camera and self._read_frame is not None:
+        if from_camera and self._read_frame is not None and not GS.why_illegal(b):  # a misread (illegal) board is never training data
             try:
                 from chess_player.vision.capture_dataset import DS, write_sample
 
@@ -721,6 +739,7 @@ class Conductor:
         b.turn = self.s.board.turn
         b.castling_rights = b.clean_castling_rights()
         voted = {sq: (c.most_common(1)[0][0], c.most_common(1)[0][1] / len(hist)) for sq, c in votes.items() if c.most_common(1)[0][0] != "."}
+        voted, _ = GS.prune_impossible(voted)
         if GS.looks_like_start(b, seen=voted):  # the starting setup: exact standard position (king e1, queen d1, White to move)
             b, unsure = chess.Board(), []
         return b.fen(), {"readings": len(hist), "pieces": len(b.piece_map()), "unsure": unsure, "valid": b.is_valid()}

@@ -360,24 +360,36 @@ class BoardWatcher:
         with self._lock:
             self.history.clear()
 
-    def stable(self, n=3, vote_n=6):
-        """A reading once the last n frames agree on which squares hold a piece and of which colour (no hand over
-        the board, nothing moving); each square's piece TYPE is the majority over the last vote_n frames, so one
-        flickering square (bishop/pawn at low confidence) doesn't hold up the whole board."""
+    MAX_FLICKER = 4  # squares allowed to be undecided (seen in 25-75 % of the frames) before the board counts as "moving"
+
+    def stable(self, n=3, vote_n=8):
+        """A reading once the board holds still. Per square the occupancy (and colour) is the MAJORITY over the last vote_n frames, so a
+        few squares that flicker on a grainy picture or at the frame edge (a piece half out of view) do not hold up the whole board;
+        only when more than MAX_FLICKER squares are undecided (a hand over the board, something moving) is None returned.
+        Each square's piece TYPE is the majority of the frames that agree on occupancy and colour."""
         with self._lock:
             if len(self.history) < n:
                 return None
-            hist = list(self.history)
-        occ = [{sq: d[0].isupper() for sq, d in h[1].items()} for h in hist[-n:]]
-        if not all(o == occ[0] for o in occ):
+            hist = list(self.history)[-vote_n:]
+        N = len(hist)
+        flicker, occupied = 0, {}
+        squares = set().union(*[set(h[1]) for h in hist])
+        for sq in squares:
+            present = [h[1][sq][0].isupper() for h in hist if sq in h[1]]
+            frac = len(present) / N
+            if 0.25 < frac < 0.75:
+                flicker += 1
+            if frac >= 0.5:
+                occupied[sq] = sum(present) * 2 >= len(present)  # colour majority: True = white
+        if flicker > self.MAX_FLICKER:
             return None
-        votes = [h[1] for h in hist[-vote_n:] if {sq: d[0].isupper() for sq, d in h[1].items()} == occ[0]]
         out = {}
-        for sq in occ[0]:
-            c = collections.Counter(v[sq][0] for v in votes if sq in v)
+        for sq, white in occupied.items():
+            votes = [h[1][sq] for h in hist if sq in h[1] and h[1][sq][0].isupper() == white]
+            c = collections.Counter(v[0] for v in votes)
             sym, k = c.most_common(1)[0]
-            conf = float(np.mean([v[sq][1] for v in votes if v.get(sq, ("",))[0] == sym]))
-            out[sq] = (sym, conf * k / len(votes))  # a split vote lowers the confidence
+            conf = float(np.mean([v[1] for v in votes if v[0] == sym]))
+            out[sq] = (sym, conf * k / N)  # a split vote (or a square seen only some of the time) lowers the confidence
         return out
 
     def close(self):
