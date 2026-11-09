@@ -16,6 +16,8 @@ The numbers per piece type are in data/wooden_grasps.json (see calib/pick_place.
 """
 import json
 
+import chess
+
 import numpy as np
 
 from chess_player import config as C
@@ -24,7 +26,7 @@ from chess_player.motion.arm import FakeArm, look_pose
 from chess_player.motion.ik import Unreachable
 from chess_player.motion.pick_place import (Blocked, GraspFailed, PickPlace, PieceDropped, Transfer, obstacles_for, plan_move,
                                             surface_z)
-from chess_player.motion.slow_grip import slow_close, slow_release
+from chess_player.motion.slow_grip import FAST_MARGIN_PCT, slow_close, slow_release
 
 FILE = C.DATA / "wooden_grasps.json"
 PAWN = dict(open_pct=16.1, shift_x=-10.6, shift_y=2.7, grip_tip=15.0, lift=30.0, place_dx=3.0, place_dy=0.0, place_extra=2.0,
@@ -49,6 +51,8 @@ CLEAR_ABOVE_MM = 8.0  # the carried piece's bottom stays this far above the tall
 # move, whenever other pieces stand on the board. Lower only where the arm cannot reach it (far ranks), and then only if no tall piece
 # is near the path.
 SAFE_CARRY_BOTTOM_MM = 70.0
+# Extra travel height added on top of every carry height (2026-11-09: user asked +20 mm, then +10 more: tall pieces must clear the king). Lowered automatically where the arm cannot reach.
+CARRY_EXTRA_MM = 30.0
 # When the jaws close on nothing the pick does NOT retry blindly: it opens, retreats, shifts the pick point by the next step (x = across the
 # jaws, where the play is only 2-3 mm; then a little in y) and tries again. The shift that finally grips is REMEMBERED per piece type and square
 # (data/pick_offsets.json) and added the next time, so the board's small position errors are learned by use instead of taught by hand.
@@ -59,6 +63,8 @@ MIN_CONTACT_PCT = 4.0  # a contact reading below this is the jaws shut on nothin
 MAX_RETRIES_TALL = 1  # extra tries (after the first) for rook, bishop, queen, king
 # Grip sanity check: the jaws closing on the pawn at a width far from the taught contact means they caught it off-centre (head, edge, a
 # neighbour). Such a grip often slips or pushes the piece, so it is let go and re-tried with the next shift. 0 turns the check off.
+# pawns: the width read varies by square (10.7 % vs 8.9 % taught on e2, with a visibly good grip at h8), so a wider tolerance (2026-11-09)
+PAWN_CONTACT_TOL_PCT = 3.5
 CONTACT_TOL_PCT = float(C._os.environ.get("CHESS_CONTACT_TOL", "1.5"))
 
 
@@ -107,6 +113,40 @@ def _residual():
 
         _resid_cache.update(mt=mt, fn=at)
     return _resid_cache["fn"]
+
+
+# HAND-TAUGHT SQUARE CENTRES (data/center_teach.json, made with scripts/center_teach.sh). The true centre of a square the user taught is
+# nominal + off(square): the tip goes THERE. The per-piece numbers (shift_x, shift_y, place_dx, place_dy) are measured FROM THAT TAUGHT CENTRE
+# (the fixed finger's offset to the piece centre, etc.), not from the maths centre. A square that was not taught is refused (no averaging).
+# No square is a reference for the others. Z is untouched (per piece, defined elsewhere). The board map (autocal) is not used any more.
+CENTRES_FILE = C.DATA / "center_teach.json"
+_cen_cache = {}
+
+
+def _centres():
+    """-> {square name: np.array([off_x, off_y]) mm (taught tip - nominal centre)}; {} when off or no file."""
+    if C._os.environ.get("CHESS_NO_CENTRES") == "1" or not CENTRES_FILE.exists():
+        return {}
+    mt = CENTRES_FILE.stat().st_mtime
+    if _cen_cache.get("mt") != mt:
+        d = json.loads(CENTRES_FILE.read_text())
+        _cen_cache.update(mt=mt, v={k: np.array([e["offset_from_centre_mm"]["x"], e["offset_from_centre_mm"]["y"]], float) for k, e in d.items()})
+    return _cen_cache["v"]
+
+
+def _centre_off(xy):
+    """Offset (mm) from the nominal centre of the square under board point xy to its hand-taught centre, straight from data/center_teach.json
+    (no averaging, no fitting). Off the board (the graveyard): zeros. A board square that was not taught: Unreachable, nothing moves."""
+    cen = _centres()
+    if not cen:
+        return np.zeros(2)
+    sq = mm_to_square(*xy)
+    if sq is None:
+        return np.zeros(2)
+    name = chess.square_name(sq)
+    if name not in cen:
+        raise Unreachable(f"the centre of {name} was not taught (data/center_teach.json): run scripts/center_teach.sh --from {name}")
+    return cen[name]
 
 
 def _square_xy(name):
@@ -172,7 +212,7 @@ class WoodenPickPlace(PickPlace):
 
     def note_landing(self, t):
         """Call with the arm at home after a robot transfer ended on a board square (not the graveyard). Updates the trim."""
-        if self.locator is None or isinstance(self.arm, FakeArm) or mm_to_square(*t.dst) is None:
+        if not C.CAMERA_STEERS_ARM or self.locator is None or isinstance(self.arm, FakeArm) or mm_to_square(*t.dst) is None:
             return None
         sym = t.piece.lower()
         ref = recipe(sym).get("cam_ref")
@@ -200,7 +240,7 @@ class WoodenPickPlace(PickPlace):
 
     def play(self, board, move, slots, recover=None):
         self._cam_dev = {}
-        if self.locator is not None and not isinstance(self.arm, FakeArm):
+        if C.CAMERA_STEERS_ARM and self.locator is not None and not isinstance(self.arm, FakeArm):
             for t, _ in list(obstacles_for(board, slots, plan_move(board, move, slots))):
                 sym = t.piece.lower()
                 ref = recipe(sym).get("cam_ref")
@@ -256,7 +296,7 @@ class WoodenPickPlace(PickPlace):
         def pose(q, grip):
             return {**dict(zip(C.ARM_JOINTS, q)), "gripper": float(grip)}
 
-        def line(xy0, z0, xy1, z1, what, grip=None, speed=None):
+        def line(xy0, z0, xy1, z1, what, grip=None, speed=None, settle=False):
             """Straight Cartesian line (IK every PATH_STEP_MM) from the arm's present place."""
             g = float(arm.joints()["gripper"]) if grip is None else grip
             xy0, xy1 = np.asarray(xy0, float), np.asarray(xy1, float)
@@ -271,7 +311,8 @@ class WoodenPickPlace(PickPlace):
             why = arm.move_path(wps, dur, check=holding_check if holding else None)
             if why:
                 return why
-            arm.settle()
+            if settle:  # OFF everywhere (2026-11-09): the sag correction re-commanded the arm mid-descent and jumped it +Y by up to 1 cm
+                arm.settle()
 
         def safe_z(xy, z_min, z_top=None):
             for z in np.arange(C.Z_SAFE if z_top is None else z_top, z_min - 1.0, -5.0):
@@ -279,6 +320,8 @@ class WoodenPickPlace(PickPlace):
                     return float(z)
             raise Unreachable(f"{t.label}: ({xy[0]:.0f}, {xy[1]:.0f}) cannot be reached above the piece")
 
+        if hasattr(arm, "reset_residual"):
+            arm.reset_residual()  # no sag correction carried over from an earlier move: the arm goes exactly to the commanded point
         holding = False
         contact_pct = [r["contact_pct"]]
 
@@ -296,7 +339,7 @@ class WoodenPickPlace(PickPlace):
         open_pct = min(r["open_pct"], C.GRIP_OPEN_MAX_PCT)
         open_pick = min(open_pct, r["contact_pct"] + 2.5) if crowded_h_side(src) else open_pct
         trim = np.zeros(2) if self.trim is None else self.trim
-        pick_xy = src + np.array([r["shift_x"], r["shift_y"]]) + trim
+        pick_xy = src + _centre_off(src) + np.array([r["shift_x"], r["shift_y"]]) + trim
         dev = (self._cam_dev or {}).get(tuple(t.src))
         if dev is not None:  # the camera saw the piece off its square centre (relative to where it stood when the grasp was taught)
             if float(np.linalg.norm(dev)) > MAX_CAM_CORR_MM:
@@ -325,7 +368,7 @@ class WoodenPickPlace(PickPlace):
                 tall = max(tall, C.PIECES[s.lower()]["height"])
         z_path = (tall + CLEAR_ABOVE_MM + r["grip_tip"] + zs) if tall else 0.0
         z_global = (SAFE_CARRY_BOTTOM_MM + r["grip_tip"] + zs) if obstacles else 0.0
-        z_c_want = max(z_grip + r["lift"], z_path, z_global)
+        z_c_want = max(z_grip + r["lift"], z_path, z_global) + CARRY_EXTRA_MM
         z_c = None
         for z in np.arange(z_c_want, z_grip + 4.0, -5.0):
             if all(reachable(p, float(z)) for p in (pick_xy, place_est, (pick_xy + place_est) / 2)):
@@ -344,7 +387,8 @@ class WoodenPickPlace(PickPlace):
         # ---- per-square arm error (autocal): relative to the square this piece type was taught on
         resid = _residual()
         corr_dst = np.zeros(2)
-        if resid is not None:
+        cen = _centres()
+        if resid is not None and not cen:  # with taught centres the board map is not used (they replace it)
             t_src, t_dst = (r.get("taught_square"), r.get("taught_dst"))
             d_src, d_dst = TAUGHT_AT.get(sym, ("e2", "e4"))
             corr_src = resid(src) - resid(_square_xy(t_src or d_src))
@@ -370,9 +414,8 @@ class WoodenPickPlace(PickPlace):
             pick_xy = base_pick + step
             arm.move_to(pose(ik_at(pick_xy, z_hi, "pick, travel height"), open_pick))
             stat["secs"] += 2.0
-            arm.settle()
             line(pick_xy, z_hi, pick_xy, z_above, "pick, above the piece", open_pick)
-            line(pick_xy, z_above, pick_xy, z_grip, "pick, grip height", open_pick)
+            line(pick_xy, z_above, pick_xy, z_grip, "pick, grip height", open_pick, settle=False)
             if real:  # what the arm really did at the grip point: joints vs commanded (a gap = the arm is not where the plan thinks)
                 pr = arm.present()
                 gap_deg = {j: round(float(pr[j]) - float(seed[i]), 1) for i, j in enumerate(C.ARM_JOINTS)}
@@ -380,16 +423,17 @@ class WoodenPickPlace(PickPlace):
                 if self.snap:
                     self.snap("before_close")
             if real:
-                contact, fin = slow_close(arm, squeeze=r["squeeze"])
+                contact, fin = slow_close(arm, squeeze=r["squeeze"], fast_to=r["contact_pct"] + FAST_MARGIN_PCT)
             else:
                 contact, fin = r["contact_pct"], r["contact_pct"] - 0.2
                 stat["secs"] += 6.0
             if contact is not None and real and contact < MIN_CONTACT_PCT:
                 log(f"  attempt {attempt + 1}: the jaws closed fully ({contact:.1f} %): nothing in the hand")
                 contact, fin = None, contact  # fully closed = no piece, whatever the load reading said
-            if contact is not None and real and CONTACT_TOL_PCT > 0 and attempt < retries and abs(contact - r["contact_pct"]) > CONTACT_TOL_PCT:
+            tol = max(CONTACT_TOL_PCT, PAWN_CONTACT_TOL_PCT) if t.piece.lower() in ("p", "b") and CONTACT_TOL_PCT > 0 else CONTACT_TOL_PCT
+            if contact is not None and real and tol > 0 and attempt < retries and abs(contact - r["contact_pct"]) > tol:
                 log(f"  attempt {attempt + 1}: gripped at {contact:.1f} % but the taught width is {r['contact_pct']:.1f} % (off by more than "
-                    f"{CONTACT_TOL_PCT:g}): probably off-centre, letting go and trying again")
+                    f"{tol:g}): probably off-centre, letting go and trying again")
                 contact, fin = None, contact
                 slow_release(arm, open_pick)
                 line(pick_xy, z_grip, pick_xy, z_hi, "retreat", open_pick, speed=r["vert_speed"])
@@ -409,14 +453,14 @@ class WoodenPickPlace(PickPlace):
         log(f"  gripped: contact at {contact:.1f} % = {gap:.1f} mm")
 
         # ---- carry
-        place_xy = dst + np.array([-gap / 2.0 + r["place_dx"], r["shift_y"] + r["place_dy"]]) - corr_dst + trim
+        place_xy = dst + np.array([-gap / 2.0 + r["place_dx"], r["shift_y"] + r["place_dy"]]) - corr_dst + _centre_off(dst) + trim
         z_place = r["grip_tip"] + r["place_extra"] + zd
         holding = True
         try:
             for step in (
                 lambda: line(pick_xy, z_grip, pick_xy, z_c, "lift", speed=r["vert_speed"]),
                 lambda: line(pick_xy, z_c, place_xy, z_c, "carry"),
-                lambda: line(place_xy, z_c, place_xy, z_place, "lower", speed=r["vert_speed"]),
+                lambda: line(place_xy, z_c, place_xy, z_place, "lower", speed=r["vert_speed"], settle=False),
             ):
                 why = step()
                 if why:

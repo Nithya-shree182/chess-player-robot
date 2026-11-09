@@ -1,6 +1,6 @@
 # STATUS: SO-101 chess robot, WOODEN rig (read this first in a new session)
 
-Last updated: **2026-11-08 (night)**. Folder `wooden-chess/` on branch `nithya`. START WITH THE SECTION "PLAN FOR 2026-11-09" AT THE END. The parent folder's code/notes are the OLD rigs
+Last updated: **2026-11-09 (night)**. NEWEST SECTION AT THE END: "2026-11-09 (night): hand-taught centres + simple pick/place". Folder `wooden-chess/` on branch `nithya`. START WITH THE SECTION "PLAN FOR 2026-11-09" AT THE END. The parent folder's code/notes are the OLD rigs
 (33.3 mm and 25 mm toy board): `../STATUS.md`, `docs/old-rig/`. `README.md` here has the long session notes (recipes, numbers, lessons).
 
 ## The rig
@@ -176,3 +176,26 @@ Committed locally on 2026-11-09 (the user pushes: `cd ~/Desktop/chess && git pus
 - `WoodenPickPlace.note_landing` + session hook: after each verified move the piece's landing is measured against its `cam_ref`; a bounded session trim (<= 4 mm, never saved) is added to
   every pick/place. Logic tested with a stub locator (converges to the injected drift).
 - `calib/selftest.py` / `scripts/selftest.sh`: camera, grid, YOLO, reach, arm, 3 touch checks (e3 d6 g4 empty). `scripts/setup_location.sh` = regrid + camcal + selftest in one go.
+
+## 2026-11-09 (night): hand-taught centres + simple pick/place (READ THIS FIRST; it replaces the camera-centring / board-map / trim ideas above)
+User decisions (their words, follow them): the camera must NOT steer the arm (no cam_ref centring, no session trim; `config.CAMERA_STEERS_ARM = False`); the arm goes to centres the user taught by hand; no averaging, no fitting; the user
+states misses in the ROBOT frame (+X right toward the h-file, +Y forward toward rank 8, +Z up) and the numbers are applied exactly; the arm shakes/sags, so eyeballed values beat maths.
+**Taught centres:** `scripts/center_teach.sh` (leader arm guides the follower, no piece asked, order h1 g1 .. a1, h2 .. a8, Enter saves, `skip`/`back`/`q`, `--from d3`). All 64 squares are in `data/center_teach.json`
+(per square: real joints, `tip_robot_mm` = the arm's real tip in the ROBOT frame, `tip_board_mm`/`offset_from_centre_mm` made with the calibration of that time, tip height). A dated backup is made before every save
+(`data/center_teach_backups/`). Do not import `teach/record_demo.py` in a tool that reads stdin: it starts a thread that swallows the keyboard.
+**Checks done:** `calib/grid_check.py` (camera shot + YOLO + grid + square diagonals + taught tips; the diagonal crossing equals the nominal centre by geometry, so it only shows the grid fits the board) and
+`calib/visit_centres.py` (arm visits all 64 centres 5 mm above the board, reports arm minus taught: mean +0.9 X, -0.7 Y mm, worst 3.7 X / 4.7 Y, only 10 far-rank squares > 2.5 mm; height reached ~2 mm above the asked 5 mm).
+Offsets taught minus nominal: mean about +4.5 X, -6.2 Y with a Y trend of ~3 mm per rank (the robot map is stretched in Y); `calib/centre_model.py` / `scripts/centre_fit.sh` fit and leave-one-out validate a formula (not used by the arm).
+**`scripts/move.sh p e2 e4` = `calib/simple_move.py` -> `motion/simple_pick_place.py`** (squares may be typed 'a7' or '7a'): NO board map, camera, sag settle, shift search, learned offsets, trim. Pick: open to open_pct (16.1 %), go to
+(taught centre + the piece's fixed-finger offset shift_x/shift_y) at the carry height, straight down to z = grip_tip (pawn 13.5 mm), close fully (1 %): below 3 % = empty hand, open and retry (3 tries), else hold at width - squeeze;
+lift, carry (z = 100 + grip_tip + extras, lowered only if unreachable), lower to place z = pick + place_extra + 8, open to contact + release_pct (12.9 %), straight up, home. `scripts/pick_each.sh` picks up and puts back a pawn on every
+square in order with a 10 s pause. The GAME / dashboard still use the OLD `WoodenPickPlace`: wire them to simple_pick_place only after move.sh is reliable.
+**Why things failed today (lessons):** (1) the sag-correction `settle()` re-commanded the arm in mid-descent and jumped it up to 1 cm +Y: all settle calls are removed from the wooden path. (2) With the closed tip exactly on the centre the open fixed finger
+landed ON the pawn's head: the finger offset (pawn shift_x -15.35, shift_y +7.83 from the taught centre, place_dx +0.65, place_dy -2.0) is geometry and must stay. (3) A +10 mm test pick height put the pads on the head (30 mm pawn). (4) After a RECALIBRATION the stored
+`tip_board_mm` (made with the old calibration) sent the arm 5-15 mm away: the code now converts `tip_robot_mm` with TODAY's calibration (`taught_xy`), valid only if the board did not move relative to the robot since teaching; otherwise re-teach the centres.
+(5) The faster gripper close read contact early (10.7 % vs 8.9 %): closing is fast only down to contact + 4 %, the rest at the original step timing; the pawn contact tolerance is 3.5 % (1.5 % for others).
+**Numbers in `data/wooden_grasps.json` (backups in data/teach/backups/):** all six types are now in the "centre frame" (`"centre_frame": true`): shift_x/shift_y/place_dx/place_dy are measured FROM the taught centre (converted once from the old numbers using the offset of the square each was tuned on).
+Bishop: grip 25.05 -> 45.05 mm and the pawn's finger numbers (thick upper part), see `data/teach/BISHOP_CHANGELOG.md`; pawn history in `data/teach/PAWN_CHANGELOG.md` (every change, with the reason).
+**Still TEMPORARY in `simple_pick_place.py`** (user's tests, remove or make permanent on their word): `TEMP_DX = -5` (every centre 5 mm toward -X), `TEMP_DZ = 0` (was +10: pads on the head), `TEMP_PLACE_DZ = +8`. The carry height is always-high (`CARRY_EXTRA_MM = 30` in wooden_pick_place.py).
+**Calibration today:** `scripts/regrid.sh` (camera grid, board had one pawn on it, fit 0.8 px median) and `scripts/recalibrate.sh` (4-corner touch + nudge by eye; its nudge keys are from the HUMAN's seat = opposite left/right of the robot frame). The new board surface is ~6-8 mm higher in robot z than the previous calibration at e2/e4.
+**Open:** pick/place accuracy per square after the finger offset came back (the user reports misses in X/Y/Z, apply exactly); heights depend on the board plane of the latest calibration; far ranks (7, 8) undershoot ~4 mm in Y; non-pawn pieces on the simple path; the game wiring; YOLO retrain; VLM second opinion for illegal-move explanation (idea only).

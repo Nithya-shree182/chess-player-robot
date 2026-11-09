@@ -446,3 +446,7 @@ ROBOT_COLOR = "black"  # fallback only: once the webcam corners are clicked, the
 
 # Per-move camera verification (game/verify.py): look before and after every robot move, fix or report a move that did not happen.
 VERIFY_MOVES = True
+# The camera must NOT steer the arm (2026-11-09, user): pick and place = square centre (grid + calibration maths) + the hand-tuned numbers in
+# data/wooden_grasps.json only. No per-piece camera centring (cam_ref), no session trim from measured landings. The camera is used for the
+# first board read and for the one check after each robot move. 1 / CHESS_CAMERA_STEERS=1 brings the old behaviour back.
+CAMERA_STEERS_ARM = _os.environ.get("CHESS_CAMERA_STEERS", "0") == "1"

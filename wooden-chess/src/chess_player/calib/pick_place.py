@@ -86,7 +86,7 @@ def main():
             if not a.yes:
                 input("Only the piece on the source square (and the --others you listed). Hand near the power switch. Enter = go: ")
             ref = r.get("cam_ref")
-            if ref is not None and not a.no_camera:  # measure the piece with the arm at home, out of the camera's view
+            if C.CAMERA_STEERS_ARM and ref is not None and not a.no_camera:  # measure the piece with the arm at home, out of the camera's view
                 from chess_player.vision.ext_camera import ExtCamera
                 from chess_player.vision.piece_locator import PieceLocator
 
