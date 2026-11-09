@@ -167,3 +167,12 @@ If it is not clearly better, `export CHESS_NO_RESIDUAL=1` (or delete data/board_
 real game with the verification on; far ranks/captures/graveyard depth (`BOARD_THICKNESS_MM` is still an estimate); ArUco markers (sheet `data/aruco_markers_A4_apriltag36h11.pdf` printed, not wired); self-centring pads (no 3D printer).
 Camera: after a replug `/dev/video4` loses the user ACL: `sudo setfacl -m u:$USER:rw /dev/video4 /dev/video5` (or `sudo usermod -aG video $USER` + re-login).
 Committed locally on 2026-11-09 (the user pushes: `cd ~/Desktop/chess && git push origin nithya`).
+
+## 2026-11-09 (later): calibration without hands/eyes, session trim, self-test (BUILT; camcal NOT yet run on the real arm)
+- `calib/camcal.py` (the arm touches 8 squares, ground-sense; the camera finds the tip = lowest changed pixel vs an arm-at-home picture; board px->mm from the grid + FK of the
+  measured joints -> rigid fit; then a check on 3 fresh squares). Needs scripts/livecam.py running. Pictures with the tip marked: `data/camcal/`. Math tested on a simulation (0.4 mm
+  from truth with the tip bias known, 5 mm without). **Run ONCE first: `python -m chess_player.calib.camcal --learn-bias`** (against the current good nudged calibration; saves
+  `data/camcal_bias.json`), look at `data/camcal/bias_*.jpg` (red dot must be on the jaw tip), then `python -m chess_player.calib.camcal`. It moves the old board_correction/board_residual aside.
+- `WoodenPickPlace.note_landing` + session hook: after each verified move the piece's landing is measured against its `cam_ref`; a bounded session trim (<= 4 mm, never saved) is added to
+  every pick/place. Logic tested with a stub locator (converges to the injected drift).
+- `calib/selftest.py` / `scripts/selftest.sh`: camera, grid, YOLO, reach, arm, 3 touch checks (e3 d6 g4 empty). `scripts/setup_location.sh` = regrid + camcal + selftest in one go.

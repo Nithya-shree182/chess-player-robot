@@ -251,6 +251,12 @@ class Session:
             self.parked = True
             if before is not None:  # verify (+ recover); raises MoveNotVerified when it cannot be fixed
                 self._verify_and_fix(move, before, saved, recover)
+                if hasattr(self.pp, "note_landing"):  # the move showed up: learn the arm's leftover error from where the piece really landed
+                    for t in transfers:
+                        try:
+                            self.pp.note_landing(t)
+                        except Exception as e:  # never let the trim break a move
+                            self.log(f"  trim: skipped ({e})")
         except Unreachable:
             self.slots = saved
             raise

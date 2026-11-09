@@ -54,6 +54,84 @@ def find_inner(frame):
     return None
 
 
+def saddles(img):
+    """Checkerboard-corner candidates (x, y) px: local maxima of the negative Hessian determinant, sub-pixel refined. Works in glare
+    and at steep camera angles where cv2.findChessboardCorners gives up."""
+    g = cv2.GaussianBlur(img.astype(np.float32), (0, 0), 1.5)
+    Ixx = cv2.Sobel(g, cv2.CV_32F, 2, 0, ksize=3)
+    Iyy = cv2.Sobel(g, cv2.CV_32F, 0, 2, ksize=3)
+    Ixy = cv2.Sobel(g, cv2.CV_32F, 1, 1, ksize=3)
+    R = cv2.GaussianBlur(np.maximum(-(Ixx * Iyy - Ixy ** 2), 0), (0, 0), 1.0)
+    ys, xs = np.where((R == cv2.dilate(R, np.ones((15, 15), np.uint8))) & (R > R.max() * 0.04))
+    pts = np.float32(np.c_[xs, ys]).reshape(-1, 1, 2)
+    pts = cv2.cornerSubPix(np.clip(img, 0, 255).astype(np.uint8), pts, (5, 5), (-1, -1), (3, 40, 0.01))
+    return pts.reshape(-1, 2)
+
+
+def find_by_growth(frame):
+    """Fallback when the full 7x7 pattern is not found (glare, steep camera, robot base touching the board). Seed = any partial
+    checkerboard OpenCV finds (>= 4x4); then the lattice is GROWN outward one ring at a time (re-fitting the homography each ring,
+    so perspective is followed) by snapping predictions to detected corner candidates. The board's 9x9 vertices (edges included:
+    the frame line makes T-junctions) are the densest 9x9 window of the grown lattice. Returns ([a1,h1,h8,a8] px, (n,2) detected
+    inner corners of the window projected back = the points the fit is judged against, n labelled) or None."""
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    cand = np.vstack([saddles(gray), saddles(lab[:, :, 2])])
+    chans = [gray, lab[:, :, 2], cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)[:, :, 1], cv2.createCLAHE(2.0, (8, 8)).apply(gray)]
+    for g in chans:
+        for cols, rows in ((7, 7), (7, 6), (6, 7), (6, 6), (7, 5), (5, 7), (6, 5), (5, 6), (5, 5), (6, 4), (4, 6), (5, 4), (4, 5), (4, 4)):
+            ok, seed = cv2.findChessboardCorners(g, (cols, rows), cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE)
+            if not ok:
+                continue
+            seed = seed.reshape(-1, 2)
+            L = {(k % cols, k // cols): seed[k] for k in range(len(seed))}
+            for _ in range(30):
+                H, _m = cv2.findHomography(np.float32(list(L)), np.float32(list(L.values())), 0)
+                if H is None:
+                    break
+                new = {}
+                for (i, j) in L:
+                    for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        q = (i + di, j + dj)
+                        if q in L or q in new:
+                            continue
+                        pr = cv2.perspectiveTransform(np.float32([[q]]), H)[0, 0]
+                        sp = np.linalg.norm(cv2.perspectiveTransform(np.float32([[(q[0] + 1, q[1])]]), H)[0, 0] - pr)
+                        dd = np.linalg.norm(cand - pr, axis=1)
+                        m = int(dd.argmin())
+                        if dd[m] < 0.22 * sp:
+                            new[q] = cand[m]
+                if not new:
+                    break
+                L.update(new)
+            best = None  # densest 9x9 window of lattice vertices
+            for i0 in range(min(i for i, _ in L) - 1, max(i for i, _ in L) + 1):
+                for j0 in range(min(j for _, j in L) - 1, max(j for _, j in L) + 1):
+                    w = [k for k in L if i0 <= k[0] < i0 + 9 and j0 <= k[1] < j0 + 9]
+                    if best is None or len(w) > len(best[0]):
+                        best = (w, i0, j0)
+            w, i0, j0 = best
+            if len(w) < 60:
+                continue
+            outer = np.float32([(0, 0), (8, 0), (8, 8), (0, 8)])
+            for k in range(4):  # the 8 labellings of the square: keep the one with rank 1 at the top and the h-file on the left
+                for flip in (False, True):
+                    def lbl(q):
+                        u, v = q[0] - i0, q[1] - j0
+                        for _ in range(k):
+                            u, v = v, 8 - u
+                        return (8 - u, v) if flip else (u, v)
+                    H, _m = cv2.findHomography(np.float32([lbl(q) for q in w]), np.float32([L[q] for q in w]), cv2.RANSAC, 3.0)
+                    if H is None:
+                        continue
+                    a1, h1, h8, a8 = cv2.perspectiveTransform(outer[None], H)[0]
+                    fa, ra = h1 - a1, a8 - a1
+                    if fa[0] < 0 and abs(fa[0]) > 1.2 * abs(fa[1]) and ra[1] > 0 and abs(ra[1]) > abs(ra[0]):
+                        inner = [L[q] for q in w if 1 <= lbl(q)[0] <= 7 and 1 <= lbl(q)[1] <= 7]
+                        return [list(map(float, p)) for p in (a1, h1, h8, a8)], np.float32(inner), len(w)
+    return None
+
+
 def find_middle(frame):
     """(21,2) inner corners of the EMPTY middle (the 3 rank lines between ranks 3|4, 4|5, 5|6 x 7 file lines), or None. Works with the
     start position set up: the pieces stand on ranks 1, 2, 7, 8."""
@@ -147,9 +225,15 @@ def main():
             break
         time.sleep(2)
     if pts is None:
-        cv2.imwrite(str(C.DATA / "ext_corners_check.jpg"), f)
-        raise SystemExit("could not find the 7x7 inner corners. Is the board EMPTY, fully in view, and lit? (picture: data/ext_corners_check.jpg)")
-    rough = orient(pts)
+        grown = find_by_growth(f)
+        rough = grown[0] if grown else None
+        if rough is None:
+            cv2.imwrite(str(C.DATA / "ext_corners_check.jpg"), f)
+            raise SystemExit("could not find the board pattern. Is the board EMPTY, fully in view, and lit? (picture: data/ext_corners_check.jpg)")
+        pts = grown[1]
+        print(f"full 7x7 pattern not found: grew the grid from a partial pattern ({grown[2]} of 81 board vertices labelled)")
+    else:
+        rough = orient(pts)
     px, n = E.refine_corners(f, rough, iters=3)
     px = [list(map(float, p)) for p in px]
 
@@ -159,7 +243,7 @@ def main():
     S = C.SQUARE_MM
     grid = np.float32([(i * S, j * S) for i in range(1, 8) for j in range(1, 8)])
     proj = cv2.perspectiveTransform(grid[None], Hm)[0]
-    d = np.min(np.linalg.norm(proj[:, None] - pts[None], axis=2), axis=1)
+    d = np.min(np.linalg.norm(pts[:, None] - proj[None], axis=2), axis=1)  # every DETECTED corner must lie on the fitted grid
     sq_px = np.linalg.norm(np.float32(px[0]) - np.float32(px[1])) / 8
     print(f"inner corners found: 49; snapped to {n}; fit vs detected corners: median {np.median(d):.2f} px, max {d.max():.2f} px; "
           f"square ~{sq_px:.0f} px")
@@ -172,7 +256,8 @@ def main():
         cv2.circle(out, tuple(int(v) for v in px[k]), 5, (0, 0, 255), -1)
         cv2.putText(out, nm, (int(px[k][0]) + 6, int(px[k][1]) - 6), 0, 0.6, (0, 0, 255), 2)
     cv2.imwrite(str(C.DATA / "ext_corners_check.jpg"), out)
-    if np.median(d) > 2.5 or d.max() > 8.0 or n < 25:  # a few px of max error is lens distortion; more means a wrong fit
+    if np.median(d) > 2.5 or np.percentile(d, 90) > 6.0 or n < 25:  # 90th percentile: a few strays near the robot base must not veto a good fit
+         # a few px of max error is lens distortion; more means a wrong fit
         raise SystemExit(f"NOT saved: the fit is poor (max {d.max():.1f} px, {n} corners). Look at data/ext_corners_check.jpg; "
                          "empty the board / fix the light / re-run.")
     if a.dry:

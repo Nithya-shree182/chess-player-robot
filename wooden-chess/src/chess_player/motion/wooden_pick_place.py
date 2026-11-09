@@ -116,6 +116,7 @@ def _square_xy(name):
     return np.array(square_center_mm(chess.parse_square(name)), float)
 
 
+TRIM_WINDOW, TRIM_MIN, TRIM_GAIN, TRIM_MAX_MM, TRIM_MAX_OBS_MM, TRIM_MAX_SPREAD_MM = 4, 3, 0.7, 4.0, 8.0, 2.5
 MAX_CAM_CORR_MM = 3.0 # the camera may move the pick point by at most this much (a bigger 'error' is a misreading, not a misplaced piece)
 
 
@@ -159,6 +160,43 @@ class WoodenPickPlace(PickPlace):
     locator = None  # vision.piece_locator.PieceLocator: measures where each source piece really stands (None = taught numbers only)
     snap = None  # optional callable(tag): save a camera picture (the pick tool uses it to record the grip point before closing)
     _cam_dev = None  # {source xy: np.array([dx, dy])} measured at the start of this move, arm at home and out of the camera's view
+    # ONLINE TRIM: a piece the robot has just placed is measured by the camera (arm at home) against where the SAME piece stood when its grasp was
+    # taught ("cam_ref"). What is left over is how far the arm's calibration has drifted from the day of teaching (a bumped board, a new setup).
+    # The median of the last few landing errors, bounded, is subtracted from every later pick and place of this session (never saved: a new
+    # setup starts from zero). Needs TRIM_MIN consistent readings per update (gain TRIM_GAIN).
+    trim = None
+    _trim_obs = None
+
+    def reset_trim(self):
+        self.trim, self._trim_obs = np.zeros(2), []
+
+    def note_landing(self, t):
+        """Call with the arm at home after a robot transfer ended on a board square (not the graveyard). Updates the trim."""
+        if self.locator is None or isinstance(self.arm, FakeArm) or mm_to_square(*t.dst) is None:
+            return None
+        sym = t.piece.lower()
+        ref = recipe(sym).get("cam_ref")
+        if ref is None:
+            return None
+        m = self.locator.measure(np.array(t.dst, float), sym)
+        if m is None:
+            return None
+        e = m - np.array(ref, float)  # landing error of the piece, board mm (+x toward the h-file, +y toward rank 8)
+        if float(np.linalg.norm(e)) > TRIM_MAX_OBS_MM:
+            self.log(f"  trim: landing error {e[0]:+.1f}, {e[1]:+.1f} mm looks like a misreading, ignored")
+            return None
+        if self._trim_obs is None:
+            self.reset_trim()
+        # e was measured WITH the current trim applied, so it is what is still missing: the trim moves by -gain x median(e), and the readings
+        # are cleared after each update (older ones belong to the previous trim).
+        self._trim_obs = (self._trim_obs + [e])[-TRIM_WINDOW:]
+        if len(self._trim_obs) >= TRIM_MIN:
+            arr = np.array(self._trim_obs)
+            if float(np.max(np.ptp(arr, axis=0))) <= TRIM_MAX_SPREAD_MM:
+                self.trim = np.clip(self.trim - TRIM_GAIN * np.median(arr, axis=0), -TRIM_MAX_MM, TRIM_MAX_MM)
+                self._trim_obs = []
+        self.log(f"  trim: {t.piece} landed {e[0]:+.1f}, {e[1]:+.1f} mm from its taught spot; session trim now {self.trim[0]:+.1f}, {self.trim[1]:+.1f} mm")
+        return e
 
     def play(self, board, move, slots, recover=None):
         self._cam_dev = {}
@@ -257,7 +295,8 @@ class WoodenPickPlace(PickPlace):
 
         open_pct = min(r["open_pct"], C.GRIP_OPEN_MAX_PCT)
         open_pick = min(open_pct, r["contact_pct"] + 2.5) if crowded_h_side(src) else open_pct
-        pick_xy = src + np.array([r["shift_x"], r["shift_y"]])
+        trim = np.zeros(2) if self.trim is None else self.trim
+        pick_xy = src + np.array([r["shift_x"], r["shift_y"]]) + trim
         dev = (self._cam_dev or {}).get(tuple(t.src))
         if dev is not None:  # the camera saw the piece off its square centre (relative to where it stood when the grasp was taught)
             if float(np.linalg.norm(dev)) > MAX_CAM_CORR_MM:
@@ -370,7 +409,7 @@ class WoodenPickPlace(PickPlace):
         log(f"  gripped: contact at {contact:.1f} % = {gap:.1f} mm")
 
         # ---- carry
-        place_xy = dst + np.array([-gap / 2.0 + r["place_dx"], r["shift_y"] + r["place_dy"]]) - corr_dst
+        place_xy = dst + np.array([-gap / 2.0 + r["place_dx"], r["shift_y"] + r["place_dy"]]) - corr_dst + trim
         z_place = r["grip_tip"] + r["place_extra"] + zd
         holding = True
         try:
