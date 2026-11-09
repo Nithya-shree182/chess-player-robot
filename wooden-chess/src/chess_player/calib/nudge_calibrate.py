@@ -59,11 +59,28 @@ def parse_typed(line):
 def get_command(keys_mode):
     """-> ('move', (dx, dy)) | 'accept' | 'skip' | 'done' | 'stop' | ('bad', text)"""
     if keys_mode:
-        import msvcrt
+        try:
+            import msvcrt
 
-        ch = msvcrt.getwch()
-        if ch in ("\x00", "\xe0"):
-            ch = {"H": "w", "P": "s", "K": "a", "M": "d"}.get(msvcrt.getwch(), "")
+            ch = msvcrt.getwch()
+            if ch in ("\x00", "\xe0"):
+                ch = {"H": "w", "P": "s", "K": "a", "M": "d"}.get(msvcrt.getwch(), "")
+        except ImportError:  # Linux / macOS: one key press without Enter; arrow keys arrive as ESC [ A/B/C/D
+            import select
+            import sys
+            import termios
+            import tty
+
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setcbreak(fd)
+                ch = sys.stdin.read(1)
+                if ch == "\x1b" and select.select([sys.stdin], [], [], 0.05)[0]:  # an arrow key, not a lone Esc
+                    seq = sys.stdin.read(2)
+                    ch = {"[A": "w", "[B": "s", "[D": "a", "[C": "d"}.get(seq, "")
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
         if ch == "\x1b":
             return "stop"
         if ch in ("\r", "\n"):

@@ -76,7 +76,7 @@ NEXT: real-arm checks with neighbours (`pick_place.py ... --others`), a far-rank
   finger: place the tip at centre - gap/2 + place_dx (pawn place_dx = +3 mm).
 - YOLO's base point reads 2-5 mm high in y: do not use it as the true piece centre.
 - GPU: after suspend/resume CUDA may break (`Xid 154 Node Reboot Required`): reboot.
-- The user wants simple instructions (one command, directions from their seat); do not ask them to click on pictures. No Claude/AI trace in commits.
+- The user wants simple instructions (one command, directions from their seat); do not ask them to click on pictures.
 - The machine has no GitHub login: the user pushes (`cd ~/Desktop/chess && git push origin nithya`).
 
 ## 2026-11-08 (night): first real game attempts, findings, PLAN FOR TOMORROW
@@ -144,4 +144,26 @@ camera) will be placed differently tomorrow and at the Jammu demo: no "recalibra
    redo board->robot (`calib/board_to_robot`) + nudge by eye (`calib/nudge_calibrate --height 30`) + the height check; check Z with a slow touch-down; then a one-piece pick
    (`calib/pick_place e2 e4 --piece p`) before any game. The taught grasp numbers may need re-tuning because they depend on the calibration (item 5 would fix that).
    Suggested order of work: 1 (camera loop) -> 3 (graveyard) -> 5 (base plate + markers) -> 2 (pads / servoing) -> 4 (speed).
-7. **Git:** the machine has no GitHub login. The user pushes: `cd ~/Desktop/chess && git push origin nithya`. Commits carry NO Claude/AI trailer (memory rule).
+7. **Git:** the machine has no GitHub login. The user pushes: `cd ~/Desktop/chess && git push origin nithya`.
+
+## 2026-11-09 (end of day): what changed, what is verified, what to do first tomorrow
+**Layout/camera:** board moved ~29 mm toward the robot (ranks 1-4 grip vertical, rank 8 still 31-39 deg). A torch over the board gives a clean picture (the room is otherwise dark).
+`scripts/regrid.sh` re-makes the camera grid (EMPTY board, no clicking); `scripts/recalibrate.sh` redoes the arm calibration (4-corner touch + nudge by eye + hover check);
+`calib/auto_grid.py --pieces` shifts the grid with pieces on (checkerboard search on the empty middle). The camera window follows drift only under 8 px: refit after any bump.
+**Grip logic (all in `motion/wooden_pick_place.py`, used by the game, the UI and `calib/pick_place.py`):** taught numbers + camera centring (3 mm limit) + shift search after a miss
+(x/y steps, up to 4 retries; rook/bishop/queen/king only 1 retry: they stand 4 mm from neighbours) + contact check (1.5 % vs taught width; < 4 % = nothing held) + safe hover/carry height.
+All six types re-taught on 2026-11-09 on their HOME squares (`scripts/teach_all.sh`; knight b1, queen d1, king e1, bishop c1, rook a1, pawn e2). Batch results: pawn 8/8, knight 2/2, queen/king/rook 2/2 first try;
+the bishop moved properly (the camera check disagreed; it had no camera reference) - re-teach it once for a `cam_ref`. Learned offsets are RECORDED but NOT applied (`CHESS_USE_LEARNED=1` applies them): a square needed +5 mm in one run and +2.5 in the next.
+**Per-move camera verification (`game/verify.py`, `Session._verify_and_fix`):** looks before/after every robot move (occupancy + colour only, differential, read-only), plays a simple move again or picks up a fallen piece,
+else raises `MoveNotVerified` (a GraspFailed: the human finishes the move). `VERIFY_MOVES` in config. Tested in logic + camera; NOT yet with a real deliberate failure.
+**Test tools:** `calib/batch_test.py` (moves, camera check, before/after pictures in `data/batch_logs/`), `vision/eval_board.py` (YOLO vs a known position), `scripts/teach_all.sh`.
+**Stockfish:** was deterministic (same opening every game); now picks randomly among the best 4 lines within 35 cp (`ENGINE_VARIETY_CP`, 0 = off). Restart the UI to get it.
+**Board map (autocal) - UNVERIFIED, check first tomorrow:** `calib/autocal.py` carried one pawn over squares and measured its landing error with the camera: the error is position-dependent (x about -1 mm at a1 to +6 mm at g1/h1,
+~1.4 mm scatter). `data/board_residual.json` = affine fit from 27 squares (ranks 1-6 + h8), **x correction only** (y zeroed: it is mixed up with camera perspective bias; the original is `board_residual.xy-original.json`).
+It moves every pick/place by -(E(square) - E(the square that type was taught on)). Switch off: `CHESS_NO_RESIDUAL=1`. A rejected over-extrapolated fit is `board_residual.REJECTED-*.json`.
+**FIRST THING TOMORROW:** put the 32 pieces on the start position (the lone autocal pawn is on h8 -> back to e2), then `python -m chess_player.calib.batch_test` (8 pawn moves). Before the map it was 5/8 first try with 5 shifted retries.
+If it is not clearly better, `export CHESS_NO_RESIDUAL=1` (or delete data/board_residual.json) and move on.
+**Open:** bishop re-teach; YOLO retrain under the torch light (g2/b2 pawns read as knights, Black near edge, king as queen); a lone pawn is detected badly by YOLO (autocal needed conf 0.15);
+real game with the verification on; far ranks/captures/graveyard depth (`BOARD_THICKNESS_MM` is still an estimate); ArUco markers (sheet `data/aruco_markers_A4_apriltag36h11.pdf` printed, not wired); self-centring pads (no 3D printer).
+Camera: after a replug `/dev/video4` loses the user ACL: `sudo setfacl -m u:$USER:rw /dev/video4 /dev/video5` (or `sudo usermod -aG video $USER` + re-login).
+Committed locally on 2026-11-09 (the user pushes: `cd ~/Desktop/chess && git push origin nithya`).

@@ -12,9 +12,9 @@ import numpy as np
 from chess_player import config as C
 from chess_player.game import state
 from chess_player.game.engine import Engine
-from chess_player.geometry import BoardToRobot
+from chess_player.geometry import BoardToRobot, square_center_mm
 from chess_player.motion.ik import IK, Unreachable
-from chess_player.motion.pick_place import PickPlace, Slots
+from chess_player.motion.pick_place import MoveNotVerified, PickPlace, Slots, Transfer
 from chess_player.motion.wooden_pick_place import WoodenPickPlace
 
 
@@ -50,6 +50,10 @@ class Session:
 
                 try:
                     self.ext = ExtCamera()
+                    if hasattr(self.pp, "locator"):  # centre every pick on where the piece really stands (arm at home = out of view)
+                        from chess_player.vision.piece_locator import PieceLocator
+
+                        self.pp.locator = PieceLocator(self.ext, log=log)
                     if self.vision == "yolo":
                         self.watcher = BoardWatcher(self.ext)
                 except RuntimeError as e:
@@ -61,6 +65,27 @@ class Session:
                     self.cam = Camera()
                 except RuntimeError as e:
                     log(f"no camera for vision ({e})")
+        # a camera used ONLY to verify each move (read-only), also in terminal mode where the game itself runs without camera vision
+        self.verifier = None
+        self.verify_cam = self.ext
+        self._own_verify_cam = False
+        if self.verify_cam is None and not dry_run and self.vision == "yolo" and C.EXT_CORNERS.exists():
+            try:
+                from chess_player.vision.ext_camera import ExtCamera
+
+                self.verify_cam = ExtCamera()
+                self._own_verify_cam = True
+                if hasattr(self.pp, "locator") and self.pp.locator is None:
+                    from chess_player.vision.piece_locator import PieceLocator
+
+                    self.pp.locator = PieceLocator(self.verify_cam, log=log)
+            except RuntimeError as e:
+                log(f"move verification camera unavailable ({e}): moves will NOT be checked by the camera")
+        if self.verify_cam is not None and not dry_run and C.VERIFY_MOVES:
+            from chess_player.game.verify import MoveVerifier
+
+            self.verifier = MoveVerifier(self.verify_cam, log=log)
+        self.disturbed = []  # [(square, was, now)] from the last verified move: pieces that changed although nothing should have
         self.parked = False
         self.illegal_seen = None  # (move text, why) when the camera shows a move the rules don't allow
         self.refine = None  # optional: webcam reading -> reading improved by the gripper camera (set by the UI)
@@ -215,9 +240,17 @@ class Session:
         if self.watcher:
             self.watcher.paused = True
         self.parked = False
+        before = None
+        if self.verifier is not None:  # observe: the arm is at home, out of the picture
+            try:
+                before = self.verifier.observe()
+            except Exception as e:  # stale stream ...
+                self.log(f"camera check skipped, could not look before the move ({e})")
         try:
             transfers = self.pp.play(self.board, move, self.slots, recover=recover)  # ends at the look pose
             self.parked = True
+            if before is not None:  # verify (+ recover); raises MoveNotVerified when it cannot be fixed
+                self._verify_and_fix(move, before, saved, recover)
         except Unreachable:
             self.slots = saved
             raise
@@ -227,6 +260,65 @@ class Session:
                 self.watcher.paused = False
         self.board.push(move)
         return [t.label for t in transfers]
+
+    MAX_FIXES = 2
+
+    def _verify_and_fix(self, move: chess.Move, before, saved_slots, recover):
+        """act -> VERIFY -> RECOVER. Look again with the arm home. If the move did not show up, fix it (at most MAX_FIXES times) when the
+        fix is simple and safe: the piece is still on its source -> play the move again; it fell elsewhere -> pick it up from there and put
+        it on the destination. Captures, castling and promotion are never retried automatically (they need the human). The game state
+        (self.board) is never touched here: it is pushed only after this returns."""
+        from chess_player.game.verify import describe
+
+        v = self.verifier
+        problems = []
+        for attempt in range(self.MAX_FIXES + 1):
+            time.sleep(4.0)  # the arm leaves the picture and the light settles
+            try:
+                after = v.observe()
+            except Exception as e:
+                self.log(f"camera check skipped, could not look after the move ({e})")
+                return
+            problems, disturbed = v.judge(before, after, self.board, move)
+            self.disturbed = [(chess.square_name(sq), b, a) for sq, b, a in disturbed]
+            if disturbed:
+                self.log("  camera: other pieces changed during the move, please check: " + describe(disturbed, "disturbed"))
+            if not problems:
+                self.log("  camera: move verified (source empty, destination holds the right colour)")
+                return
+            self.log("  camera: the move did NOT show up: " + describe(problems, "problem"))
+            if attempt == self.MAX_FIXES or not self._fix(move, before, after, saved_slots, recover):
+                break
+        raise MoveNotVerified(f"{move.uci()}: the camera does not show the move: {describe(problems, 'problem')}")
+
+    def _fix(self, move: chess.Move, before, after, saved_slots, recover):
+        """One automatic recovery step. True = something was done (look again), False = nothing safe to do."""
+        if self.board.is_capture(move) or self.board.is_castling(move) or move.promotion:
+            self.log("  camera: captures, castling and promotion are not fixed automatically")
+            return False
+        mover = "w" if self.board.turn else "b"
+        src, dst = move.from_square, move.to_square
+        if after[src] == mover:  # still standing on its source square
+            self.log("  camera: the piece is still on its source square: playing the move again")
+            self.slots = copy.deepcopy(saved_slots)
+            self.pp.play(self.board, move, self.slots, recover=recover)
+            return True
+        strays = self.verifier.strays(before, after, self.board, move)
+        if strays:  # a piece of the mover's colour appeared where none belongs: it fell or was put down wrong
+            sq = min(strays, key=lambda q: float(np.linalg.norm(square_center_mm(q) - square_center_mm(dst))))
+            piece = self.board.piece_at(src)
+            self.log(f"  camera: a {mover} piece stands on {chess.square_name(sq)}: picking it up from there and putting it on "
+                     f"{chess.square_name(dst)}")
+            t = Transfer(piece.symbol(), tuple(square_center_mm(sq)), tuple(square_center_mm(dst)),
+                         f"fix {chess.square_name(sq)}-{chess.square_name(dst)}")
+            after_board = self.board.copy()
+            after_board.push(move)
+            obstacles = {tuple(square_center_mm(q)): p.symbol() for q, p in after_board.piece_map().items() if q != dst}
+            obstacles = {xy: s for xy, s in obstacles.items() if float(np.hypot(xy[0] - t.src[0], xy[1] - t.src[1])) > 1.0}
+            self.pp.execute(t, obstacles=obstacles)
+            self.pp.go_look()
+            return True
+        return False
 
     def push_robot_by_hand(self, move: chess.Move):
         """The human made the robot's move physically (after Unreachable/GraspFailed)."""
@@ -258,4 +350,6 @@ class Session:
                 self.watcher.close()
             if self.ext:
                 self.ext.close()
+            if self._own_verify_cam and self.verify_cam is not None:
+                self.verify_cam.close()
             self.arm.close()

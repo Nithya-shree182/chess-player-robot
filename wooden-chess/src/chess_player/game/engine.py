@@ -1,4 +1,6 @@
 """Stockfish via python-chess. One engine process for the whole game."""
+import random
+
 import chess
 import chess.engine
 
@@ -27,6 +29,24 @@ class Engine:
             return fn(board, *args)
 
     def best_move(self, board: chess.Board, seconds=C.ENGINE_TIME_S) -> chess.Move:
+        """Stockfish's best move. Stockfish is deterministic (same position -> same move), so every game would open the same way. With
+        ENGINE_VARIETY_CP > 0 it looks at the best few moves and picks randomly among those no worse than that many centipawns behind the
+        best (nearly full strength, but different games). Forced lines and mates are never varied."""
+        if C.ENGINE_VARIETY_CP > 0 and not board.is_game_over():
+            try:
+                infos = self._call(lambda b, t: self.e.analyse(b, chess.engine.Limit(time=t), multipv=C.ENGINE_VARIETY_LINES), board, seconds)
+                scored = []
+                for i in infos:
+                    sc = i["score"].relative
+                    if sc.is_mate() or not i.get("pv"):
+                        scored = []
+                        break
+                    scored.append((sc.score(), i["pv"][0]))
+                if len(scored) > 1:
+                    best = max(s for s, _ in scored)
+                    return random.choice([m for s, m in scored if s >= best - C.ENGINE_VARIETY_CP])
+            except Exception:
+                pass  # any trouble: fall back to the plain best move below
         return self._call(lambda b, t: self.e.play(b, chess.engine.Limit(time=t)).move, board, seconds)
 
     def evaluate(self, board: chess.Board, seconds=0.3) -> str:

@@ -4,7 +4,8 @@ sees. Also re-serves the stream at http://127.0.0.1:8771/video (and /shot) so th
 
   source scripts/env.sh && python scripts/livecam.py        (leave it running; close the window to stop)
 """
-import json, pathlib, sys, threading, time
+import json
+import os, pathlib, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2, numpy as np
@@ -30,6 +31,8 @@ def grabber():
         cap = cv2.VideoCapture(DEV, cv2.CAP_V4L2)
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         cap.set(3, 1280); cap.set(4, 720)  # (1080p gave corrupt-frame errors on this USB link)
+        # a LOWER frame rate lets the sensor expose each frame longer = much less noise in a dim room (the board is still anyway)
+        cap.set(cv2.CAP_PROP_FPS, float(os.environ.get("LIVECAM_FPS", "30")))
         fails = 0
         while fails < 30:
             ok, f = cap.read()
@@ -44,7 +47,7 @@ def grabber():
             if ema is None or ema.shape != f32.shape:
                 ema = f32
             else:
-                a = np.where(np.abs(f32 - ema).max(axis=2, keepdims=True) > 28, 1.0, 0.35)
+                a = np.where(np.abs(f32 - ema).max(axis=2, keepdims=True) > 28, 1.0, float(os.environ.get("LIVECAM_EMA", "0.35")))  # smaller = more averaging
                 ema = ema * (1 - a) + f32 * a
             f = ema.astype(np.uint8)
             ok, jpg = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 92])

@@ -18,6 +18,7 @@ The printed contact reading / gap = the width of the part gripped (2-3 % = close
 """
 import argparse
 import json
+import time
 
 import chess
 import numpy as np
@@ -42,6 +43,8 @@ def main():
     ap.add_argument("--others", nargs="*", default=[], help='other pieces on the board, e.g. "d3:p f3:P" (square:symbol, capital = white)')
     ap.add_argument("--save", action="store_true", help="store the numbers used in data/wooden_grasps.json for this piece")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--retries", type=int, default=4, help="extra attempts after the jaws close on nothing (each shifts the pick point a little)")
+    ap.add_argument("--no-camera", action="store_true", help="do not correct the pick point with the camera (taught numbers only)")
     ap.add_argument("--yes", action="store_true", help="do not ask for Enter")
     a = ap.parse_args()
 
@@ -62,13 +65,40 @@ def main():
     arm = FakeArm() if a.dry_run else Arm()
     pp = WoodenPickPlace(arm, ik, T, log=print)
     pp.override = over
+    if not a.dry_run:  # a picture of the grip point before the jaws close: data/pick_debug/
+        import time as _t
+        import urllib.request as _u
+
+        _dbg = C.DATA / "pick_debug"
+        _dbg.mkdir(exist_ok=True)
+
+        def _snap(tag):
+            try:
+                (_dbg / f"{_t.strftime('%H%M%S')}_{a.piece}_{a.src}_{tag}.jpg").write_bytes(_u.urlopen(str(C.EXT_CAMERA_URL).replace("/video", "/shot"), timeout=5).read())
+            except Exception as e:
+                print("  (no picture:", e, ")")
+
+        pp.snap = _snap
     try:
         if a.dry_run:
             print(pp.plan_transfer(t, obstacles or None)["info"])
         else:
             if not a.yes:
                 input("Only the piece on the source square (and the --others you listed). Hand near the power switch. Enter = go: ")
-            print(pp.execute(t, retries=0, obstacles=obstacles or None))
+            ref = r.get("cam_ref")
+            if ref is not None and not a.no_camera:  # measure the piece with the arm at home, out of the camera's view
+                from chess_player.vision.ext_camera import ExtCamera
+                from chess_player.vision.piece_locator import PieceLocator
+
+                cam = ExtCamera()
+                try:
+                    time.sleep(1.5)
+                    m = PieceLocator(cam, log=print).measure(np.array(src, float), a.piece)
+                finally:
+                    cam.close()
+                if m is not None:
+                    pp._cam_dev = {tuple(src): m - np.array(ref, float)}
+            print(pp.execute(t, retries=a.retries, obstacles=obstacles or None))
             arm.move_to({**look_pose(), "gripper": C.GRIPPER_LOOK}, 3.0)
         print("done. Off-centre at the place square: adjust --place-dx / --place-dy (+x = toward the h-file, +y = toward rank 8).")
     finally:
@@ -78,7 +108,7 @@ def main():
             d = json.loads(FILE.read_text())
         except (OSError, ValueError):
             d = {}
-        d[a.piece] = {k: r[k] for k in KEYS}
+        d[a.piece] = {**d.get(a.piece, {}), **{k: r[k] for k in KEYS}}  # keeps cam_ref / complete
         FILE.write_text(json.dumps(d, indent=2))
         print("saved", FILE)
 

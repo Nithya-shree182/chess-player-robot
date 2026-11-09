@@ -114,6 +114,8 @@ def main():
     ap.add_argument("--dst", default="e4")
     ap.add_argument("--grip-frac", type=float, default=0.45, help="approach height as a fraction of the piece height")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--wide", action="store_true",
+                    help="approach with the full taught opening; default: the narrow opening the game uses next to neighbours (contact + 2.5 %%)")
     ap.add_argument("--keys", action="store_true", help="single key presses (run it in your own terminal)")
     a = ap.parse_args()
 
@@ -201,6 +203,7 @@ def main():
         except (OSError, ValueError):
             d = {}
         keep = {k: v for k, v in r.items() if k != "taught"}
+        keep["taught_square"], keep["taught_dst"] = a.square, a.dst  # the board map (autocal) corrects relative to these
         d[sym] = {**keep, "complete": complete}
         FILE.write_text(json.dumps(d, indent=2))
         print(f"  SAVED {sym} ({'taught, complete' if complete else 'partial: stages so far'}) in {FILE.name}")
@@ -223,7 +226,9 @@ def main():
     z0 = a.grip_frac * H + zs
     print(f"Piece {sym.upper()} ({H:.0f} mm) on {a.square}, facing as you set it. Approach: tip over ({centre_tip[0]:.1f}, {centre_tip[1]:.1f}), "
           f"down to {z0:.1f} mm, jaws {open_pct:.1f} %.")
-    z_hi = next((float(z) for z in np.arange(C.Z_SAFE, z0, -5.0) if reach(centre_tip, float(z))), None)
+    # approach at the SAME safe height as the carry (piece-bottom 70 mm up), over the pick point, then straight down
+    z_hover = SAFE_CARRY_BOTTOM_MM + r["grip_tip"] + zs
+    z_hi = next((float(z) for z in np.arange(z_hover, z0, -5.0) if reach(centre_tip, float(z))), None)
     if z_hi is None:
         raise SystemExit("cannot reach above the piece")
     if not a.dry_run:  # every time: the wrong --piece letter silently overwrote another piece's numbers twice
@@ -232,13 +237,37 @@ def main():
         ans = input(f"Teaching the {names[sym].upper()} on {a.square}.{warn} Is a {names[sym]} standing there? Type '{names[sym]}' to confirm: ")
         if ans.strip().lower() != names[sym]:
             raise SystemExit(f"cancelled: nothing changed. Run it again with --piece set to the piece that is really on {a.square} (p r n b q k).")
-    input("Hands clear, a hand near the power switch. Enter = go: ")
+    input("The piece must be CENTRED on the square now (the camera records where it stands). Hands clear, a hand near the power switch. Enter = go: ")
+    r.pop("cam_ref", None)  # a stale reference from an earlier teach must never survive
+    if not a.dry_run:  # measured with the arm at home (out of the camera's view), BEFORE it moves
+        try:
+            from chess_player.vision.ext_camera import ExtCamera
+            from chess_player.vision.piece_locator import PieceLocator
+
+            _cam = ExtCamera()
+            try:
+                time.sleep(1.5)
+                m = PieceLocator(_cam, log=print).measure(src, sym)
+            finally:
+                _cam.close()
+        except Exception as e:  # camera window not running ...
+            m = None
+            print(f"  camera: {e}")
+        if m is None:
+            print("  WARNING: no camera reference recorded (the camera could not measure the piece): this teach will work WITHOUT camera centring")
+        else:
+            r["cam_ref"] = [round(float(m[0]), 2), round(float(m[1]), 2)]
+            print(f"  camera reference recorded: the piece stands {m[0]:+.1f}, {m[1]:+.1f} mm from the square centre (saved as cam_ref)")
+    approach_open = open_pct
+    if r.get("taught") and "contact_pct" in r and not a.wide:
+        approach_open = min(open_pct, r["contact_pct"] + 2.5)
+        print(f"  approach with the narrow opening the game uses next to neighbours: {approach_open:.1f} % (use --wide for {open_pct:.1f} %)")
 
     holding_check_on = False
     z_c = None
     st4 = dict(carried=False, lowered=False, released_at=None)  # what stage 4 has really done
     try:
-        arm.move_to(pose(ik_at(centre_tip, z_hi), open_pct))
+        arm.move_to(pose(ik_at(centre_tip, z_hi), approach_open))
         arm.settle()
         cur = np.array([*centre_tip, z_hi])
         line([*centre_tip, z0 + 20.0], 25.0)

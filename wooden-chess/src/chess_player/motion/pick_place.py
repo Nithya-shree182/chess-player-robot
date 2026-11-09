@@ -42,6 +42,11 @@ class GraspFailed(RuntimeError):
     pass
 
 
+class MoveNotVerified(GraspFailed):
+    """The arm finished but the camera does not show the board the move should have produced (and the automatic fix did not work).
+    A GraspFailed, so main.py and the UI let the human finish the move by hand and then call push_robot_by_hand."""
+
+
 class Slots:
     """Off-board places: one graveyard slot per captured piece, and the spare promotion pieces."""
 

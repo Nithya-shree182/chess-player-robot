@@ -439,5 +439,10 @@ VOICE_MAX_UTTERANCE_S = 12.0
 
 # ---------------------------------------------------------------- game
 ENGINE_TIME_S = 1.0
+ENGINE_VARIETY_CP = 35  # pick randomly among the best moves within this many centipawns of the best (0 = always the single best move)
+ENGINE_VARIETY_LINES = 4  # how many best lines to look at for that
 ROBOT_COLOR = "black"  # fallback only: once the webcam corners are clicked, the robot's colour is read from them
                        # (vision/ext_camera.robot_color_from_corners): rank 1 on the robot's side = robot white
+
+# Per-move camera verification (game/verify.py): look before and after every robot move, fix or report a move that did not happen.
+VERIFY_MOVES = True
